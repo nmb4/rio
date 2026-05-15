@@ -3521,8 +3521,9 @@ impl Screen<'_> {
             if !content.is_empty() {
                 self.ctx_mut().current_mut().messenger.send_write(content);
             }
-        } else {
-            // Feed pixel delta through SmoothScroll for sub-line animation.
+        } else if self.renderer.smooth_scroll_enabled {
+            // Smooth scroll: feed pixel delta through SmoothScroll for
+            // sub-line animation.
             let pixel_y =
                 (new_scroll_y_px * self.mouse.multiplier) / self.mouse.divider;
             let lines = self.renderer.smooth_scroll.feed_pixel_delta(
@@ -3560,6 +3561,24 @@ impl Screen<'_> {
                     .pending_update
                     .set_dirty();
             }
+        } else {
+            // Original direct scroll (no smooth animation).
+            self.mouse.accumulated_scroll.y +=
+                (new_scroll_y_px * self.mouse.multiplier) / self.mouse.divider;
+            let lines = (self.mouse.accumulated_scroll.y / height) as i32;
+
+            if lines != 0 {
+                let current = self.context_manager.current_mut();
+                let rich_text_id = current.rich_text_id;
+                let mut terminal = current.terminal.lock();
+                terminal.scroll_display(Scroll::Delta(lines));
+                drop(terminal);
+                self.renderer.scrollbar.notify_scroll(rich_text_id);
+            }
+
+            self.mouse.accumulated_scroll.x %= width;
+            self.mouse.accumulated_scroll.y %= height;
+            return;
         }
 
         self.mouse.accumulated_scroll.x %= width;
@@ -3762,13 +3781,15 @@ impl Screen<'_> {
         }
 
         // Advance smooth scroll animation for this frame.
-        self.renderer.smooth_scroll.update();
-        if self.renderer.smooth_scroll.is_animating() {
-            self.context_manager
-                .current_mut()
-                .renderable_content
-                .pending_update
-                .set_dirty();
+        if self.renderer.smooth_scroll_enabled {
+            self.renderer.smooth_scroll.update();
+            if self.renderer.smooth_scroll.is_animating() {
+                self.context_manager
+                    .current_mut()
+                    .renderable_content
+                    .pending_update
+                    .set_dirty();
+            }
         }
 
         let is_search_active = self.search_active();

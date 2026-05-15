@@ -1589,7 +1589,9 @@ impl ApplicationHandler<EventPayload> for Application<'_> {
                                 // Reset offset to zero.
                                 route.window.screen.mouse.accumulated_scroll =
                                     Default::default();
-                                route.window.screen.renderer.smooth_scroll.trackpad_started();
+                                if route.window.screen.renderer.smooth_scroll_enabled {
+                                    route.window.screen.renderer.smooth_scroll.trackpad_started();
+                                }
                             }
                             TouchPhase::Moved => {
                                 // When the angle between (x, 0) and (x, y) is lower than ~25 degrees
@@ -1603,7 +1605,9 @@ impl ApplicationHandler<EventPayload> for Application<'_> {
                                 route.window.screen.scroll(lpos.x, lpos.y);
                             }
                             TouchPhase::Ended | TouchPhase::Cancelled => {
-                                route.window.screen.renderer.smooth_scroll.trackpad_ended();
+                                if route.window.screen.renderer.smooth_scroll_enabled {
+                                    route.window.screen.renderer.smooth_scroll.trackpad_ended();
+                                }
                             }
                         }
                     }
