@@ -7,6 +7,7 @@
 // which is licensed under MIT license.
 
 use crate::context::ContextManager;
+use rio_backend::config::navigation::Navigation;
 use rio_backend::event::{EventProxy, ProgressReport, ProgressState};
 use rio_backend::sugarloaf::text::DrawOpts;
 use rio_backend::sugarloaf::{Attributes, Sugarloaf};
@@ -27,6 +28,30 @@ fn color_u8(c: [f32; 4]) -> [u8; 4] {
 
 /// Height of the tab bar in pixels
 pub const ISLAND_HEIGHT: f32 = 34.0;
+
+/// Width of the FloatingSidebar tab list in logical pixels.
+pub const FLOATING_SIDEBAR_WIDTH: f32 = 220.0;
+
+/// Left-edge reveal target for the FloatingSidebar in logical pixels.
+pub const FLOATING_SIDEBAR_TRIGGER_WIDTH: f32 = 12.0;
+
+/// Height of one FloatingSidebar tab row in logical pixels.
+pub const FLOATING_SIDEBAR_TAB_HEIGHT: f32 = 36.0;
+
+pub const FLOATING_SIDEBAR_PADDING: f32 = 8.0;
+
+pub const FLOATING_SIDEBAR_RADIUS: f32 = 12.0;
+
+#[cfg(target_os = "macos")]
+pub const FLOATING_SIDEBAR_TOP_OFFSET: f32 = ISLAND_HEIGHT;
+
+#[cfg(not(target_os = "macos"))]
+pub const FLOATING_SIDEBAR_TOP_OFFSET: f32 = 0.0;
+
+const FLOATING_SIDEBAR_BOTTOM_MARGIN: f32 = 8.0;
+const FLOATING_SIDEBAR_INDICATOR_FONT_SIZE: f32 = 12.0;
+const FLOATING_SIDEBAR_INDICATOR_HEIGHT: f32 = 20.0;
+const FLOATING_SIDEBAR_INDICATOR_PADDING_X: f32 = 8.0;
 
 /// Height of the progress bar in pixels
 const PROGRESS_BAR_HEIGHT: f32 = 3.0;
@@ -165,6 +190,7 @@ pub struct Island {
     rename_input: String,
     /// Caret blink timer
     rename_caret_time: Instant,
+    floating_sidebar_opacity: f32,
 }
 
 impl Island {
@@ -173,6 +199,7 @@ impl Island {
         active_text_color: [f32; 4],
         border_color: [f32; 4],
         hide_if_single: bool,
+        floating_sidebar_opacity: f32,
     ) -> Self {
         Self {
             hide_if_single,
@@ -192,6 +219,7 @@ impl Island {
             tab_custom_titles: FxHashMap::default(),
             rename_input: String::new(),
             rename_caret_time: Instant::now(),
+            floating_sidebar_opacity,
         }
     }
 
@@ -200,10 +228,12 @@ impl Island {
         inactive_text_color: [f32; 4],
         active_text_color: [f32; 4],
         border_color: [f32; 4],
+        floating_sidebar_opacity: f32,
     ) {
         self.inactive_text_color = inactive_text_color;
         self.active_text_color = active_text_color;
         self.border_color = border_color;
+        self.floating_sidebar_opacity = floating_sidebar_opacity;
     }
 
     /// Update the progress bar state from an OSC 9;4 report.
@@ -348,10 +378,20 @@ impl Island {
         sugarloaf: &mut Sugarloaf,
         dimensions: (f32, f32, f32),
         context_manager: &ContextManager<EventProxy>,
+        navigation: &Navigation,
+        floating_sidebar_visible: bool,
     ) {
         let (window_width, _window_height, scale_factor) = dimensions;
         let num_tabs = context_manager.len();
         let current_tab_index = context_manager.current_index();
+
+        if navigation.is_floating_sidebar() {
+            self.render_floating_sidebar_indicator(sugarloaf, context_manager);
+            if floating_sidebar_visible {
+                self.render_floating_sidebar(sugarloaf, dimensions, context_manager);
+            }
+            return;
+        }
 
         // Immediate-mode: no cached ids to hide. If we early-return
         // without drawing, the tabs just don't appear this frame.
@@ -480,6 +520,169 @@ impl Island {
 
         // Render the progress bar below the island
         self.render_progress_bar(sugarloaf, window_width, scale_factor);
+    }
+
+    fn render_floating_sidebar(
+        &mut self,
+        sugarloaf: &mut Sugarloaf,
+        dimensions: (f32, f32, f32),
+        context_manager: &ContextManager<EventProxy>,
+    ) {
+        let (_window_width, window_height, scale_factor) = dimensions;
+        let num_tabs = context_manager.len();
+        let current_tab_index = context_manager.current_index();
+        if self.hide_if_single && num_tabs == 1 {
+            return;
+        }
+
+        let height = window_height / scale_factor;
+        let top_offset = FLOATING_SIDEBAR_TOP_OFFSET;
+        let height = (height - top_offset - FLOATING_SIDEBAR_BOTTOM_MARGIN).max(0.0);
+        if height <= 0.0 {
+            return;
+        }
+
+        sugarloaf.rounded_rect(
+            None,
+            0.0,
+            top_offset,
+            FLOATING_SIDEBAR_WIDTH,
+            height,
+            [0.02, 0.02, 0.025, self.floating_sidebar_opacity],
+            0.0,
+            FLOATING_SIDEBAR_RADIUS,
+            0,
+        );
+        sugarloaf.rect(
+            None,
+            FLOATING_SIDEBAR_WIDTH - 1.0,
+            top_offset + FLOATING_SIDEBAR_RADIUS,
+            0.5,
+            (height - FLOATING_SIDEBAR_RADIUS * 2.0).max(0.0),
+            self.border_color,
+            0.1,
+            0,
+        );
+
+        let mut y_position = top_offset + FLOATING_SIDEBAR_PADDING;
+        let text_opts = DrawOpts {
+            font_size: TITLE_FONT_SIZE,
+            ..DrawOpts::default()
+        };
+
+        for tab_index in 0..num_tabs {
+            let is_active = tab_index == current_tab_index;
+            let row_y = y_position;
+            let row_height = FLOATING_SIDEBAR_TAB_HEIGHT;
+
+            if let Some(bg_color) = self.tab_colors.get(&tab_index) {
+                sugarloaf.rect(
+                    None,
+                    FLOATING_SIDEBAR_PADDING,
+                    row_y,
+                    FLOATING_SIDEBAR_WIDTH - FLOATING_SIDEBAR_PADDING * 2.0,
+                    row_height,
+                    *bg_color,
+                    0.05,
+                    0,
+                );
+            }
+
+            if is_active {
+                sugarloaf.rect(
+                    None,
+                    FLOATING_SIDEBAR_PADDING,
+                    row_y,
+                    3.0,
+                    row_height,
+                    self.active_text_color,
+                    0.1,
+                    0,
+                );
+                sugarloaf.rect(
+                    None,
+                    FLOATING_SIDEBAR_PADDING,
+                    row_y,
+                    FLOATING_SIDEBAR_WIDTH - FLOATING_SIDEBAR_PADDING * 2.0,
+                    row_height,
+                    [
+                        self.border_color[0],
+                        self.border_color[1],
+                        self.border_color[2],
+                        0.18,
+                    ],
+                    0.05,
+                    0,
+                );
+            }
+
+            let raw_title = self.get_title_for_tab(context_manager, tab_index);
+            if !raw_title.is_empty() {
+                let max_text_width = FLOATING_SIDEBAR_WIDTH
+                    - FLOATING_SIDEBAR_PADDING * 2.0
+                    - TAB_PADDING_X;
+                let title = fit_title_to_width(sugarloaf, &raw_title, max_text_width);
+                let color = if is_active {
+                    self.active_text_color
+                } else {
+                    self.inactive_text_color
+                };
+                let title_opts = DrawOpts {
+                    color: color_u8(color),
+                    ..text_opts
+                };
+                let text_y = row_y + (row_height / 2.0) - (TITLE_FONT_SIZE / 2.0);
+                sugarloaf.text_mut().draw(
+                    FLOATING_SIDEBAR_PADDING + 14.0,
+                    text_y,
+                    &title,
+                    &title_opts,
+                );
+            }
+
+            y_position += row_height;
+        }
+    }
+
+    fn render_floating_sidebar_indicator(
+        &mut self,
+        sugarloaf: &mut Sugarloaf,
+        context_manager: &ContextManager<EventProxy>,
+    ) {
+        #[cfg(target_os = "macos")]
+        {
+            let label = format!("#{}", context_manager.current_index() + 1);
+            let opts = DrawOpts {
+                font_size: FLOATING_SIDEBAR_INDICATOR_FONT_SIZE,
+                color: color_u8(self.active_text_color),
+                ..DrawOpts::default()
+            };
+            let text_width = sugarloaf.text_mut().measure(&label, &opts);
+            let width = text_width + FLOATING_SIDEBAR_INDICATOR_PADDING_X * 2.0;
+            let x = ISLAND_MARGIN_LEFT_MACOS;
+            let y = (ISLAND_HEIGHT - FLOATING_SIDEBAR_INDICATOR_HEIGHT) / 2.0;
+            sugarloaf.rounded_rect(
+                None,
+                x,
+                y,
+                width,
+                FLOATING_SIDEBAR_INDICATOR_HEIGHT,
+                [0.02, 0.02, 0.025, self.floating_sidebar_opacity],
+                0.0,
+                FLOATING_SIDEBAR_INDICATOR_HEIGHT / 2.0,
+                0,
+            );
+            sugarloaf.text_mut().draw(
+                x + FLOATING_SIDEBAR_INDICATOR_PADDING_X,
+                y + (FLOATING_SIDEBAR_INDICATOR_HEIGHT / 2.0)
+                    - (FLOATING_SIDEBAR_INDICATOR_FONT_SIZE / 2.0),
+                &label,
+                &opts,
+            );
+        }
+
+        #[cfg(not(target_os = "macos"))]
+        let _ = (sugarloaf, context_manager);
     }
 
     /// Toggle the color picker for a given tab index
@@ -844,7 +1047,7 @@ mod tests {
         let active_color = [0.9, 0.9, 0.9, 1.0];
         let border_color = [0.7, 0.7, 0.7, 1.0];
 
-        let island = Island::new(inactive_color, active_color, border_color, true);
+        let island = Island::new(inactive_color, active_color, border_color, true, 0.92);
 
         assert_eq!(island.inactive_text_color, inactive_color);
         assert_eq!(island.active_text_color, active_color);
@@ -859,6 +1062,7 @@ mod tests {
             [1.0, 1.0, 1.0, 1.0],
             [0.8, 0.8, 0.8, 1.0],
             false,
+            0.92,
         );
         assert_eq!(island.height(), ISLAND_HEIGHT);
     }
@@ -869,6 +1073,7 @@ mod tests {
             [0.9, 0.9, 0.9, 1.0],
             [0.7, 0.7, 0.7, 1.0],
             false,
+            0.92,
         )
     }
 

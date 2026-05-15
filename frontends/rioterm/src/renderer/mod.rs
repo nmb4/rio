@@ -87,6 +87,7 @@ pub struct Renderer {
     pub custom_mouse_cursor: bool,
     pub trail_cursor_enabled: bool,
     pub trail_cursor: trail_cursor::TrailCursor,
+    floating_sidebar_visible: bool,
 }
 
 impl Renderer {
@@ -113,12 +114,13 @@ impl Renderer {
             dynamic_background.2 = true;
         }
 
-        let island = if config.navigation.is_enabled() {
+        let island = if config.navigation.has_rio_rendered_tabs() {
             Some(island::Island::new(
                 named_colors.tabs,
                 named_colors.tabs_active,
                 named_colors.tab_border,
                 config.navigation.hide_if_single,
+                config.navigation.floating_sidebar_opacity,
             ))
         } else {
             None
@@ -158,7 +160,18 @@ impl Renderer {
             custom_mouse_cursor: config.effects.custom_mouse_cursor,
             trail_cursor_enabled: config.effects.trail_cursor,
             trail_cursor: trail_cursor::TrailCursor::new(),
+            floating_sidebar_visible: false,
         }
+    }
+
+    #[inline]
+    pub fn set_floating_sidebar_visible(&mut self, visible: bool) {
+        self.floating_sidebar_visible = visible;
+    }
+
+    #[inline]
+    pub fn floating_sidebar_visible(&self) -> bool {
+        self.floating_sidebar_visible
     }
 
     #[inline]
@@ -572,6 +585,8 @@ impl Renderer {
                 sugarloaf,
                 (window_size.width, window_size.height, scale_factor),
                 context_manager,
+                &self.navigation,
+                self.floating_sidebar_visible,
             );
         }
 

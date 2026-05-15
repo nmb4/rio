@@ -11,7 +11,8 @@ pub fn padding_top_from_config(
     #[allow(unused)] num_tabs: usize,
     #[allow(unused)] macos_use_unified_titlebar: bool,
 ) -> f32 {
-    // When navigation is enabled (Tab mode), start content below island
+    // FloatingSidebar overlays the terminal and is normally hidden, so only
+    // the fixed top Tab mode reserves vertical space.
     if navigation.is_enabled() {
         // On Linux/Windows, if hide_if_single is true and there's only one tab,
         // the island is hidden so render from 0 + configured margin

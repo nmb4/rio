@@ -986,6 +986,7 @@ impl ApplicationHandler<EventPayload> for Application<'_> {
 
             WindowEvent::ModifiersChanged(modifiers) => {
                 route.window.screen.set_modifiers(modifiers);
+                route.request_redraw();
             }
 
             WindowEvent::MouseInput { state, button, .. } => {
@@ -1249,6 +1250,20 @@ impl ApplicationHandler<EventPayload> for Application<'_> {
                 route.window.screen.mouse.x = x;
                 route.window.screen.mouse.y = y;
                 route.window.screen.mouse.raw_y = position.y;
+
+                if route.window.screen.update_floating_sidebar_hover() {
+                    route.window.screen.mark_dirty();
+                    route.request_redraw();
+                }
+
+                if route.window.screen.renderer.floating_sidebar_visible() {
+                    use crate::renderer::island::FLOATING_SIDEBAR_WIDTH;
+                    let scale = route.window.screen.sugarloaf.scale_factor();
+                    if (x as f32 / scale) <= FLOATING_SIDEBAR_WIDTH {
+                        route.window.winit_window.set_cursor(CursorIcon::Default);
+                        return;
+                    }
+                }
 
                 // Handle assistant overlay hover
                 if route.window.screen.renderer.assistant.is_active() {

@@ -17,12 +17,24 @@ pub fn clamp_unfocused_split_opacity(v: f32) -> f32 {
     v.clamp(0.15, 1.0)
 }
 
+#[inline]
+pub fn default_floating_sidebar_opacity() -> f32 {
+    0.92
+}
+
+#[inline]
+pub fn clamp_floating_sidebar_opacity(v: f32) -> f32 {
+    v.clamp(0.0, 1.0)
+}
+
 #[derive(Debug, Serialize, Deserialize, PartialEq, Clone, Copy)]
 pub enum NavigationMode {
     #[serde(alias = "plain")]
     Plain,
     #[serde(alias = "tab")]
     Tab,
+    #[serde(alias = "floating-sidebar", alias = "floatingsidebar")]
+    FloatingSidebar,
     #[cfg(target_os = "macos")]
     #[serde(alias = "nativetab")]
     NativeTab,
@@ -45,6 +57,7 @@ impl Default for NavigationMode {
 impl NavigationMode {
     const PLAIN_STR: &'static str = "Plain";
     const TAB_STR: &'static str = "Tab";
+    const FLOATING_SIDEBAR_STR: &'static str = "FloatingSidebar";
     #[cfg(target_os = "macos")]
     const NATIVE_TAB_STR: &'static str = "NativeTab";
 
@@ -52,6 +65,7 @@ impl NavigationMode {
         match self {
             Self::Plain => Self::PLAIN_STR,
             Self::Tab => Self::TAB_STR,
+            Self::FloatingSidebar => Self::FLOATING_SIDEBAR_STR,
             #[cfg(target_os = "macos")]
             Self::NativeTab => Self::NATIVE_TAB_STR,
         }
@@ -63,6 +77,7 @@ pub fn modes_as_vec_string() -> Vec<String> {
     [
         NavigationMode::Plain,
         NavigationMode::Tab,
+        NavigationMode::FloatingSidebar,
         #[cfg(target_os = "macos")]
         NavigationMode::NativeTab,
     ]
@@ -87,6 +102,7 @@ impl std::str::FromStr for NavigationMode {
         match s {
             Self::PLAIN_STR => Ok(NavigationMode::Plain),
             Self::TAB_STR => Ok(NavigationMode::Tab),
+            Self::FLOATING_SIDEBAR_STR => Ok(NavigationMode::FloatingSidebar),
             #[cfg(target_os = "macos")]
             Self::NATIVE_TAB_STR => Ok(NavigationMode::NativeTab),
             _ => Ok(NavigationMode::default()),
@@ -150,6 +166,11 @@ pub struct Navigation {
         rename = "unfocused-split-fill"
     )]
     pub unfocused_split_fill: Option<ColorArray>,
+    #[serde(
+        default = "default_floating_sidebar_opacity",
+        rename = "floating-sidebar-opacity"
+    )]
+    pub floating_sidebar_opacity: f32,
 }
 
 impl Default for Navigation {
@@ -164,6 +185,7 @@ impl Default for Navigation {
             use_split: true,
             unfocused_split_opacity: default_unfocused_split_opacity(),
             unfocused_split_fill: None,
+            floating_sidebar_opacity: default_floating_sidebar_opacity(),
             open_config_with_split: true,
         }
     }
@@ -191,6 +213,19 @@ impl Navigation {
     #[inline]
     pub fn is_enabled(&self) -> bool {
         self.mode == NavigationMode::Tab
+    }
+
+    #[inline]
+    pub fn is_floating_sidebar(&self) -> bool {
+        self.mode == NavigationMode::FloatingSidebar
+    }
+
+    #[inline]
+    pub fn has_rio_rendered_tabs(&self) -> bool {
+        matches!(
+            self.mode,
+            NavigationMode::Tab | NavigationMode::FloatingSidebar
+        )
     }
 
     /// Whether the rio-rendered tab strip ("island") is actually painted
@@ -239,6 +274,23 @@ mod tests {
         assert_eq!(decoded.navigation.mode, NavigationMode::Tab);
         assert!(!decoded.navigation.clickable);
         assert!(decoded.navigation.color_automation.is_empty());
+    }
+
+    #[test]
+    fn test_floating_sidebar() {
+        let content = r#"
+            [navigation]
+            mode = 'FloatingSidebar'
+            floating-sidebar-opacity = 0.72
+        "#;
+
+        let decoded = toml::from_str::<Root>(content).unwrap();
+        assert_eq!(decoded.navigation.mode, NavigationMode::FloatingSidebar);
+        assert_eq!(decoded.navigation.floating_sidebar_opacity, 0.72);
+        assert!(decoded.navigation.has_navigation_key_bindings());
+        assert!(decoded.navigation.has_rio_rendered_tabs());
+        assert!(decoded.navigation.is_floating_sidebar());
+        assert!(!decoded.navigation.is_enabled());
     }
 
     #[test]

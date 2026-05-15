@@ -90,6 +90,8 @@ pub struct Screen<'screen> {
     /// char → font resolution cache; the per-panel atlas lives on
     /// each `GridRenderer`.
     pub grid_rasterizer: crate::grid_emit::GridGlyphRasterizer,
+    floating_sidebar_mouse_visible: bool,
+    floating_sidebar_command_visible: bool,
 }
 
 pub struct ScreenWindowProperties {
@@ -326,6 +328,8 @@ impl Screen<'_> {
             resize_state: None,
             grids: rustc_hash::FxHashMap::default(),
             grid_rasterizer: crate::grid_emit::GridGlyphRasterizer::new(),
+            floating_sidebar_mouse_visible: false,
+            floating_sidebar_command_visible: false,
         })
     }
 
@@ -397,6 +401,65 @@ impl Screen<'_> {
     #[inline]
     pub fn set_modifiers(&mut self, modifiers: Modifiers) {
         self.modifiers = modifiers;
+        if self.renderer.navigation.is_floating_sidebar()
+            && !self.modifiers.state().super_key()
+            && self.floating_sidebar_command_visible
+        {
+            self.floating_sidebar_command_visible = false;
+            self.sync_floating_sidebar_visibility();
+            self.mark_dirty();
+        }
+    }
+
+    #[inline]
+    fn floating_sidebar_visible(&self) -> bool {
+        self.floating_sidebar_mouse_visible || self.floating_sidebar_command_visible
+    }
+
+    #[inline]
+    fn sync_floating_sidebar_visibility(&mut self) {
+        let visible = self.renderer.navigation.is_floating_sidebar()
+            && self.floating_sidebar_visible()
+            && !(self.renderer.navigation.hide_if_single
+                && self.context_manager.len() == 1);
+        self.renderer.set_floating_sidebar_visible(visible);
+    }
+
+    #[inline]
+    fn show_floating_sidebar_for_command(&mut self) {
+        if self.renderer.navigation.is_floating_sidebar()
+            && self.modifiers.state().super_key()
+        {
+            self.floating_sidebar_command_visible = true;
+            self.sync_floating_sidebar_visibility();
+        }
+    }
+
+    pub fn update_floating_sidebar_hover(&mut self) -> bool {
+        if !self.renderer.navigation.is_floating_sidebar() {
+            return false;
+        }
+
+        use crate::renderer::island::{
+            FLOATING_SIDEBAR_TOP_OFFSET, FLOATING_SIDEBAR_TRIGGER_WIDTH,
+            FLOATING_SIDEBAR_WIDTH,
+        };
+
+        let scale = self.sugarloaf.scale_factor();
+        let mouse_x = self.mouse.x as f32 / scale;
+        let mouse_y = self.mouse.y as f32 / scale;
+        let inside_vertical_bounds = mouse_y >= FLOATING_SIDEBAR_TOP_OFFSET;
+        let was_visible = self.floating_sidebar_mouse_visible;
+        self.floating_sidebar_mouse_visible = if !inside_vertical_bounds {
+            false
+        } else if self.floating_sidebar_mouse_visible {
+            mouse_x <= FLOATING_SIDEBAR_WIDTH
+        } else {
+            mouse_x <= FLOATING_SIDEBAR_TRIGGER_WIDTH
+        };
+        self.sync_floating_sidebar_visibility();
+
+        was_visible != self.floating_sidebar_mouse_visible
     }
 
     #[inline]
@@ -484,9 +547,15 @@ impl Screen<'_> {
                 config.colors.tabs,
                 config.colors.tabs_active,
                 config.colors.tab_border,
+                config.navigation.floating_sidebar_opacity,
             );
             self.renderer.island = Some(island);
         }
+        if !self.renderer.navigation.is_floating_sidebar() {
+            self.floating_sidebar_mouse_visible = false;
+            self.floating_sidebar_command_visible = false;
+        }
+        self.sync_floating_sidebar_visibility();
 
         let scale = self.sugarloaf.scale_factor();
         for context_grid in self.context_manager.contexts_mut() {
@@ -1358,6 +1427,7 @@ impl Screen<'_> {
                             old_index,
                             new_index,
                         );
+                        self.show_floating_sidebar_for_command();
                         self.cancel_search(clipboard);
                         self.mark_dirty();
                     }
@@ -2603,8 +2673,8 @@ impl Screen<'_> {
         window: &rio_window::window::Window,
         clipboard: &mut Clipboard,
     ) -> bool {
-        // Only handle if navigation is enabled
-        if !self.renderer.navigation.is_enabled() {
+        // Only handle if Rio-rendered navigation is enabled.
+        if !self.renderer.navigation.has_rio_rendered_tabs() {
             return false;
         }
 
@@ -2618,6 +2688,49 @@ impl Screen<'_> {
         let window_width = self.sugarloaf.window_size().width;
         let num_tabs = self.context_manager.len();
         let island_visible = self.renderer.navigation.island_visible(num_tabs);
+
+        if self.renderer.navigation.is_floating_sidebar() {
+            if !self.renderer.floating_sidebar_visible() {
+                return false;
+            }
+
+            use crate::renderer::island::{
+                FLOATING_SIDEBAR_PADDING, FLOATING_SIDEBAR_TAB_HEIGHT,
+                FLOATING_SIDEBAR_TOP_OFFSET, FLOATING_SIDEBAR_WIDTH,
+            };
+            let mouse_x_unscaled = mouse_x as f32 / scale_factor;
+            let mouse_y_unscaled = mouse_y as f32 / scale_factor;
+            if mouse_x_unscaled > FLOATING_SIDEBAR_WIDTH
+                || mouse_y_unscaled
+                    < FLOATING_SIDEBAR_TOP_OFFSET + FLOATING_SIDEBAR_PADDING
+            {
+                return false;
+            }
+
+            let clicked_tab = ((mouse_y_unscaled
+                - FLOATING_SIDEBAR_TOP_OFFSET
+                - FLOATING_SIDEBAR_PADDING)
+                / FLOATING_SIDEBAR_TAB_HEIGHT) as usize;
+            if clicked_tab >= num_tabs {
+                return true;
+            }
+
+            if clicked_tab != self.context_manager.current_index() {
+                self.cancel_search(clipboard);
+                self.clear_selection();
+                let old_index = self.context_manager.current_index();
+                self.context_manager.set_current(clicked_tab);
+                let new_index = self.context_manager.current_index();
+                self.context_manager.switch_context_visibility(
+                    &mut self.sugarloaf,
+                    old_index,
+                    new_index,
+                );
+                self.mark_dirty();
+            }
+
+            return true;
+        }
 
         // Check if the color picker is open and the click hits a swatch.
         // Handled before the `island_visible` short-circuit so a picker

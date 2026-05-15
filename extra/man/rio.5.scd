@@ -319,11 +319,18 @@ This section documents the *[scroll]* table of the configuration file.
 
 This section documents the *[navigation]* table of the configuration file.
 
-*mode* = _"NativeTab"_ | _"Tab"_ | _"Plain"_
+*mode* = _"NativeTab"_ | _"Tab"_ | _"FloatingSidebar"_ | _"Plain"_
 
 Navigation display mode.
 
 Default: _"Tab"_
+
+*floating-sidebar-opacity* = _<float>_
+
+	Background opacity for the _"FloatingSidebar"_ navigation mode, from _0.0_
+	to _1.0_.
+
+	Default: _0.92_
 
 *clickable* = _true_ | _false_
 
