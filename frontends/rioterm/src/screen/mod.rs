@@ -221,9 +221,10 @@ impl Screen<'_> {
             #[cfg(not(target_os = "windows"))]
             use_fork: config.use_fork,
             is_native,
-            // When navigation does not contain any color rule
-            // does not make sense fetch for foreground process names/path
-            should_update_title_extra: !config.navigation.color_automation.is_empty(),
+            // Foreground process names are needed for color automation and
+            // FloatingSidebar labels.
+            should_update_title_extra: !config.navigation.color_automation.is_empty()
+                || config.navigation.is_floating_sidebar(),
             split_color: config.colors.split,
             split_active_color: config.colors.split_active,
             panel: config.panel,
@@ -556,6 +557,12 @@ impl Screen<'_> {
             self.floating_sidebar_command_visible = false;
         }
         self.sync_floating_sidebar_visibility();
+        self.context_manager.config.should_update_title_extra =
+            !config.navigation.color_automation.is_empty()
+                || config.navigation.is_floating_sidebar();
+        self.context_manager.config.title = config.title.clone();
+        self.context_manager.titles.last_title_update = None;
+        self.context_manager.update_titles();
 
         let scale = self.sugarloaf.scale_factor();
         for context_grid in self.context_manager.contexts_mut() {
