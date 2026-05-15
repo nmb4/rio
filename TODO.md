@@ -85,6 +85,14 @@ Explore additional sidebar layout modes beyond the current floating version.
 - In embedded mode, shift the actual terminal panes to the right so the sidebar is baked into the layout.
 - Work out the border styling for embedded mode.
 
+## Add antialiasing support for line drawing
+
+Improve 1px line rendering so embedded sidebar dividers and similar UI lines can use proper softened ends and edges.
+
+- Investigate reusing the antialiasing approach already used for rounded rect corners.
+- Prefer a renderer-level primitive rather than hand-assembling cap pixels in each UI component.
+- Use this to replace the current manual embedded sidebar divider cap treatment.
+
 ## Detect interactive vs blocking commands in the sidebar
 
 Add command-state detection for the Rio sidebar so it can distinguish between commands that should be waited on and commands that are interactive or long-running.
