@@ -13,7 +13,7 @@ use rio_backend::sugarloaf::text::DrawOpts;
 use rio_backend::sugarloaf::{Attributes, Sugarloaf};
 use rustc_hash::FxHashMap;
 use std::borrow::Cow;
-use std::time::Instant;
+use std::time::{Duration, Instant};
 
 /// Convert `[f32; 4]` colour to `[u8; 4]` for the `Text` API.
 #[inline]
@@ -35,6 +35,8 @@ pub const FLOATING_SIDEBAR_WIDTH: f32 = 220.0;
 /// Left-edge reveal target for the FloatingSidebar in logical pixels.
 pub const FLOATING_SIDEBAR_TRIGGER_WIDTH: f32 = 12.0;
 
+pub const FLOATING_SIDEBAR_LEFT_MARGIN: f32 = 8.0;
+
 /// Height of one FloatingSidebar tab row in logical pixels.
 pub const FLOATING_SIDEBAR_TAB_HEIGHT: f32 = 36.0;
 
@@ -52,6 +54,7 @@ const FLOATING_SIDEBAR_BOTTOM_MARGIN: f32 = 8.0;
 const FLOATING_SIDEBAR_INDICATOR_FONT_SIZE: f32 = 12.0;
 const FLOATING_SIDEBAR_INDICATOR_HEIGHT: f32 = 20.0;
 const FLOATING_SIDEBAR_INDICATOR_PADDING_X: f32 = 8.0;
+const FLOATING_SIDEBAR_ANIMATION_DURATION: Duration = Duration::from_millis(160);
 
 /// Height of the progress bar in pixels
 const PROGRESS_BAR_HEIGHT: f32 = 3.0;
@@ -191,6 +194,10 @@ pub struct Island {
     /// Caret blink timer
     rename_caret_time: Instant,
     floating_sidebar_opacity: f32,
+    floating_sidebar_fraction: f32,
+    floating_sidebar_target_fraction: f32,
+    floating_sidebar_animation_from: f32,
+    floating_sidebar_animation_started: Option<Instant>,
 }
 
 impl Island {
@@ -220,6 +227,10 @@ impl Island {
             rename_input: String::new(),
             rename_caret_time: Instant::now(),
             floating_sidebar_opacity,
+            floating_sidebar_fraction: 0.0,
+            floating_sidebar_target_fraction: 0.0,
+            floating_sidebar_animation_from: 0.0,
+            floating_sidebar_animation_started: None,
         }
     }
 
@@ -271,6 +282,39 @@ impl Island {
     /// Check if the progress bar needs continuous rendering (for animations)
     pub fn needs_redraw(&self) -> bool {
         matches!(self.progress_state, Some(ProgressState::Indeterminate))
+            || self.floating_sidebar_animation_started.is_some()
+    }
+
+    pub fn set_floating_sidebar_visible(&mut self, visible: bool) {
+        let target = if visible { 1.0 } else { 0.0 };
+        if self.floating_sidebar_target_fraction == target {
+            return;
+        }
+
+        self.floating_sidebar_animation_from = self.floating_sidebar_fraction;
+        self.floating_sidebar_target_fraction = target;
+        self.floating_sidebar_animation_started = Some(Instant::now());
+    }
+
+    fn floating_sidebar_fraction(&mut self) -> f32 {
+        let Some(started) = self.floating_sidebar_animation_started else {
+            return self.floating_sidebar_fraction;
+        };
+
+        let elapsed = started.elapsed();
+        if elapsed >= FLOATING_SIDEBAR_ANIMATION_DURATION {
+            self.floating_sidebar_fraction = self.floating_sidebar_target_fraction;
+            self.floating_sidebar_animation_started = None;
+            return self.floating_sidebar_fraction;
+        }
+
+        let t = elapsed.as_secs_f32() / FLOATING_SIDEBAR_ANIMATION_DURATION.as_secs_f32();
+        let eased = 1.0 - (1.0 - t).powi(3);
+        self.floating_sidebar_fraction = self.floating_sidebar_animation_from
+            + (self.floating_sidebar_target_fraction
+                - self.floating_sidebar_animation_from)
+                * eased;
+        self.floating_sidebar_fraction
     }
 
     /// Check if the progress bar should be auto-dismissed due to timeout.
@@ -380,6 +424,7 @@ impl Island {
         context_manager: &ContextManager<EventProxy>,
         navigation: &Navigation,
         floating_sidebar_visible: bool,
+        terminal_background: [f32; 4],
     ) {
         let (window_width, _window_height, scale_factor) = dimensions;
         let num_tabs = context_manager.len();
@@ -387,8 +432,15 @@ impl Island {
 
         if navigation.is_floating_sidebar() {
             self.render_floating_sidebar_indicator(sugarloaf, context_manager);
-            if floating_sidebar_visible {
-                self.render_floating_sidebar(sugarloaf, dimensions, context_manager);
+            let animation_fraction = self.floating_sidebar_fraction();
+            if floating_sidebar_visible || animation_fraction > 0.0 {
+                self.render_floating_sidebar(
+                    sugarloaf,
+                    dimensions,
+                    context_manager,
+                    terminal_background,
+                    animation_fraction,
+                );
             }
             return;
         }
@@ -527,6 +579,8 @@ impl Island {
         sugarloaf: &mut Sugarloaf,
         dimensions: (f32, f32, f32),
         context_manager: &ContextManager<EventProxy>,
+        terminal_background: [f32; 4],
+        animation_fraction: f32,
     ) {
         let (_window_width, window_height, scale_factor) = dimensions;
         let num_tabs = context_manager.len();
@@ -542,24 +596,62 @@ impl Island {
             return;
         }
 
+        let x_position = FLOATING_SIDEBAR_LEFT_MARGIN
+            - (1.0 - animation_fraction)
+                * (FLOATING_SIDEBAR_WIDTH + FLOATING_SIDEBAR_LEFT_MARGIN);
+        let visible_alpha = self.floating_sidebar_opacity * animation_fraction;
+        let background = [
+            terminal_background[0],
+            terminal_background[1],
+            terminal_background[2],
+            visible_alpha,
+        ];
+
         sugarloaf.rounded_rect(
             None,
+            x_position + 4.0,
+            top_offset + 6.0,
+            FLOATING_SIDEBAR_WIDTH,
+            height,
+            [0.0, 0.0, 0.0, 0.30 * animation_fraction],
             0.0,
+            FLOATING_SIDEBAR_RADIUS,
+            0,
+        );
+        sugarloaf.rounded_rect(
+            None,
+            x_position + 2.0,
+            top_offset + 3.0,
+            FLOATING_SIDEBAR_WIDTH,
+            height,
+            [0.0, 0.0, 0.0, 0.18 * animation_fraction],
+            0.0,
+            FLOATING_SIDEBAR_RADIUS,
+            0,
+        );
+        sugarloaf.rounded_rect(
+            None,
+            x_position,
             top_offset,
             FLOATING_SIDEBAR_WIDTH,
             height,
-            [0.02, 0.02, 0.025, self.floating_sidebar_opacity],
+            background,
             0.0,
             FLOATING_SIDEBAR_RADIUS,
             0,
         );
         sugarloaf.rect(
             None,
-            FLOATING_SIDEBAR_WIDTH - 1.0,
+            x_position + FLOATING_SIDEBAR_WIDTH - 1.0,
             top_offset + FLOATING_SIDEBAR_RADIUS,
             0.5,
             (height - FLOATING_SIDEBAR_RADIUS * 2.0).max(0.0),
-            self.border_color,
+            [
+                self.border_color[0],
+                self.border_color[1],
+                self.border_color[2],
+                self.border_color[3] * animation_fraction,
+            ],
             0.1,
             0,
         );
@@ -578,11 +670,16 @@ impl Island {
             if let Some(bg_color) = self.tab_colors.get(&tab_index) {
                 sugarloaf.rect(
                     None,
-                    FLOATING_SIDEBAR_PADDING,
+                    x_position + FLOATING_SIDEBAR_PADDING,
                     row_y,
                     FLOATING_SIDEBAR_WIDTH - FLOATING_SIDEBAR_PADDING * 2.0,
                     row_height,
-                    *bg_color,
+                    [
+                        bg_color[0],
+                        bg_color[1],
+                        bg_color[2],
+                        bg_color[3] * animation_fraction,
+                    ],
                     0.05,
                     0,
                 );
@@ -591,17 +688,22 @@ impl Island {
             if is_active {
                 sugarloaf.rect(
                     None,
-                    FLOATING_SIDEBAR_PADDING,
+                    x_position + FLOATING_SIDEBAR_PADDING,
                     row_y,
                     3.0,
                     row_height,
-                    self.active_text_color,
+                    [
+                        self.active_text_color[0],
+                        self.active_text_color[1],
+                        self.active_text_color[2],
+                        self.active_text_color[3] * animation_fraction,
+                    ],
                     0.1,
                     0,
                 );
                 sugarloaf.rect(
                     None,
-                    FLOATING_SIDEBAR_PADDING,
+                    x_position + FLOATING_SIDEBAR_PADDING,
                     row_y,
                     FLOATING_SIDEBAR_WIDTH - FLOATING_SIDEBAR_PADDING * 2.0,
                     row_height,
@@ -609,7 +711,7 @@ impl Island {
                         self.border_color[0],
                         self.border_color[1],
                         self.border_color[2],
-                        0.18,
+                        0.18 * animation_fraction,
                     ],
                     0.05,
                     0,
@@ -628,12 +730,17 @@ impl Island {
                     self.inactive_text_color
                 };
                 let title_opts = DrawOpts {
-                    color: color_u8(color),
+                    color: color_u8([
+                        color[0],
+                        color[1],
+                        color[2],
+                        color[3] * animation_fraction,
+                    ]),
                     ..text_opts
                 };
                 let text_y = row_y + (row_height / 2.0) - (TITLE_FONT_SIZE / 2.0);
                 sugarloaf.text_mut().draw(
-                    FLOATING_SIDEBAR_PADDING + 14.0,
+                    x_position + FLOATING_SIDEBAR_PADDING + 14.0,
                     text_y,
                     &title,
                     &title_opts,

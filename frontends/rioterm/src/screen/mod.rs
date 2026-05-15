@@ -441,8 +441,8 @@ impl Screen<'_> {
         }
 
         use crate::renderer::island::{
-            FLOATING_SIDEBAR_TOP_OFFSET, FLOATING_SIDEBAR_TRIGGER_WIDTH,
-            FLOATING_SIDEBAR_WIDTH,
+            FLOATING_SIDEBAR_LEFT_MARGIN, FLOATING_SIDEBAR_TOP_OFFSET,
+            FLOATING_SIDEBAR_TRIGGER_WIDTH, FLOATING_SIDEBAR_WIDTH,
         };
 
         let scale = self.sugarloaf.scale_factor();
@@ -453,7 +453,7 @@ impl Screen<'_> {
         self.floating_sidebar_mouse_visible = if !inside_vertical_bounds {
             false
         } else if self.floating_sidebar_mouse_visible {
-            mouse_x <= FLOATING_SIDEBAR_WIDTH
+            mouse_x <= FLOATING_SIDEBAR_LEFT_MARGIN + FLOATING_SIDEBAR_WIDTH
         } else {
             mouse_x <= FLOATING_SIDEBAR_TRIGGER_WIDTH
         };
@@ -2695,12 +2695,15 @@ impl Screen<'_> {
             }
 
             use crate::renderer::island::{
-                FLOATING_SIDEBAR_PADDING, FLOATING_SIDEBAR_TAB_HEIGHT,
-                FLOATING_SIDEBAR_TOP_OFFSET, FLOATING_SIDEBAR_WIDTH,
+                FLOATING_SIDEBAR_LEFT_MARGIN, FLOATING_SIDEBAR_PADDING,
+                FLOATING_SIDEBAR_TAB_HEIGHT, FLOATING_SIDEBAR_TOP_OFFSET,
+                FLOATING_SIDEBAR_WIDTH,
             };
             let mouse_x_unscaled = mouse_x as f32 / scale_factor;
             let mouse_y_unscaled = mouse_y as f32 / scale_factor;
-            if mouse_x_unscaled > FLOATING_SIDEBAR_WIDTH
+            if !(FLOATING_SIDEBAR_LEFT_MARGIN
+                ..=FLOATING_SIDEBAR_LEFT_MARGIN + FLOATING_SIDEBAR_WIDTH)
+                .contains(&mouse_x_unscaled)
                 || mouse_y_unscaled
                     < FLOATING_SIDEBAR_TOP_OFFSET + FLOATING_SIDEBAR_PADDING
             {

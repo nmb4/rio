@@ -167,6 +167,9 @@ impl Renderer {
     #[inline]
     pub fn set_floating_sidebar_visible(&mut self, visible: bool) {
         self.floating_sidebar_visible = visible;
+        if let Some(island) = &mut self.island {
+            island.set_floating_sidebar_visible(visible);
+        }
     }
 
     #[inline]
@@ -587,6 +590,7 @@ impl Renderer {
                 context_manager,
                 &self.navigation,
                 self.floating_sidebar_visible,
+                self.dynamic_background.0,
             );
         }
 

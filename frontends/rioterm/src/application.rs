@@ -1257,9 +1257,13 @@ impl ApplicationHandler<EventPayload> for Application<'_> {
                 }
 
                 if route.window.screen.renderer.floating_sidebar_visible() {
-                    use crate::renderer::island::FLOATING_SIDEBAR_WIDTH;
+                    use crate::renderer::island::{
+                        FLOATING_SIDEBAR_LEFT_MARGIN, FLOATING_SIDEBAR_WIDTH,
+                    };
                     let scale = route.window.screen.sugarloaf.scale_factor();
-                    if (x as f32 / scale) <= FLOATING_SIDEBAR_WIDTH {
+                    if (x as f32 / scale)
+                        <= FLOATING_SIDEBAR_LEFT_MARGIN + FLOATING_SIDEBAR_WIDTH
+                    {
                         route.window.winit_window.set_cursor(CursorIcon::Default);
                         return;
                     }
