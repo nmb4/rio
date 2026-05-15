@@ -107,4 +107,20 @@ impl SmoothScroll {
         self.trackpad_active = false;
         self.accumulated = 0.0;
     }
+
+    /// Clamp the offset so it doesn't try to reveal content past the
+    /// scrollback boundaries.
+    ///
+    /// - `at_bottom`: display_offset == 0 → can't scroll further down,
+    ///   so negative offset (revealing content below) is clamped to 0.
+    /// - `at_top`: display_offset == history_size → can't scroll further
+    ///   up, so positive offset (revealing content above) is clamped to 0.
+    pub fn clamp_at_boundary(&mut self, at_bottom: bool, at_top: bool) {
+        if at_bottom && self.offset_y < 0.0 {
+            self.offset_y = 0.0;
+        }
+        if at_top && self.offset_y > 0.0 {
+            self.offset_y = 0.0;
+        }
+    }
 }

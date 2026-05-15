@@ -3535,8 +3535,20 @@ impl Screen<'_> {
                 let rich_text_id = current.rich_text_id;
                 let mut terminal = current.terminal.lock();
                 terminal.scroll_display(Scroll::Delta(lines));
+                self.renderer.smooth_scroll.clamp_at_boundary(
+                    terminal.display_offset() == 0,
+                    terminal.display_offset() == terminal.history_size(),
+                );
                 drop(terminal);
                 self.renderer.scrollbar.notify_scroll(rich_text_id);
+            } else {
+                // No integer scroll, but still check boundaries to prevent
+                // the fractional offset from accumulating past the edges.
+                let terminal = self.context_manager.current().terminal.lock();
+                self.renderer.smooth_scroll.clamp_at_boundary(
+                    terminal.display_offset() == 0,
+                    terminal.display_offset() == terminal.history_size(),
+                );
             }
             // Mark dirty so the render loop picks up the smooth scroll offset.
             if self.renderer.smooth_scroll.is_animating()
