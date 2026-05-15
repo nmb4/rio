@@ -1011,7 +1011,8 @@ impl<T: EventListener + Clone + std::marker::Send + 'static> ContextManager<T> {
             is_native: config.navigation.is_native(),
             // When navigation is collapsed and does not contain any color rule
             // does not make sense fetch for foreground process names
-            should_update_title_extra: !config.navigation.color_automation.is_empty(),
+            should_update_title_extra: !config.navigation.color_automation.is_empty()
+                || config.navigation.is_floating_sidebar(),
             split_color: config.colors.split,
             split_active_color: config.colors.split_active,
             panel: config.panel,

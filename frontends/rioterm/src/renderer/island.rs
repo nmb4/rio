@@ -7,12 +7,13 @@
 // which is licensed under MIT license.
 
 use crate::context::ContextManager;
+use rio_backend::config::navigation::Navigation;
 use rio_backend::event::{EventProxy, ProgressReport, ProgressState};
 use rio_backend::sugarloaf::text::DrawOpts;
 use rio_backend::sugarloaf::{Attributes, Sugarloaf};
 use rustc_hash::FxHashMap;
 use std::borrow::Cow;
-use std::time::Instant;
+use std::time::{Duration, Instant};
 
 /// Convert `[f32; 4]` colour to `[u8; 4]` for the `Text` API.
 #[inline]
@@ -27,6 +28,49 @@ fn color_u8(c: [f32; 4]) -> [u8; 4] {
 
 /// Height of the tab bar in pixels
 pub const ISLAND_HEIGHT: f32 = 34.0;
+
+/// Width of the FloatingSidebar tab list in logical pixels.
+pub const FLOATING_SIDEBAR_WIDTH: f32 = 220.0;
+
+/// Left-edge reveal target for the FloatingSidebar in logical pixels.
+pub const FLOATING_SIDEBAR_TRIGGER_WIDTH: f32 = 12.0;
+
+pub const FLOATING_SIDEBAR_LEFT_MARGIN: f32 = 8.0;
+
+/// Height of one FloatingSidebar tab row in logical pixels.
+pub const FLOATING_SIDEBAR_TAB_HEIGHT: f32 = 36.0;
+
+pub const FLOATING_SIDEBAR_PADDING: f32 = 8.0;
+
+pub const FLOATING_SIDEBAR_RADIUS: f32 = 12.0;
+
+#[cfg(target_os = "macos")]
+pub const FLOATING_SIDEBAR_TOP_OFFSET: f32 = ISLAND_HEIGHT;
+
+#[cfg(not(target_os = "macos"))]
+pub const FLOATING_SIDEBAR_TOP_OFFSET: f32 = 0.0;
+
+const FLOATING_SIDEBAR_BOTTOM_MARGIN: f32 = 8.0;
+const FLOATING_SIDEBAR_INDICATOR_FONT_SIZE: f32 = 11.5;
+const FLOATING_SIDEBAR_INDICATOR_HEIGHT: f32 = 17.0;
+const FLOATING_SIDEBAR_INDICATOR_PADDING_X: f32 = 9.0;
+const FLOATING_SIDEBAR_INDICATOR_TEXT_Y_OFFSET: f32 = -1.0;
+const FLOATING_SIDEBAR_ANIMATION_DURATION: Duration = Duration::from_millis(160);
+const FLOATING_SIDEBAR_EDGE_DEPTH: f32 = 1.0;
+const FLOATING_SIDEBAR_OUTER_EDGE_ALPHA: f32 = 0.20;
+const FLOATING_SIDEBAR_INSET_EDGE_ALPHA: f32 = 0.18;
+const FLOATING_SIDEBAR_EMBEDDED_DIVIDER_DARK_ALPHA: f32 = 0.28;
+const FLOATING_SIDEBAR_EMBEDDED_DIVIDER_LIGHT_ALPHA: f32 = 0.20;
+const FLOATING_SIDEBAR_EMBEDDED_DIVIDER_BOTTOM_GAP: f32 = 3.0;
+const FLOATING_SIDEBAR_EMBEDDED_DIVIDER_CAP_SIZE: f32 = 2.0;
+const FLOATING_SIDEBAR_EMBEDDED_TOP_OVERLAP: f32 = 2.0;
+const FLOATING_SIDEBAR_TAB_RADIUS: f32 = 6.0;
+const FLOATING_SIDEBAR_TAB_BORDER_ALPHA: f32 = 0.18;
+const FLOATING_SIDEBAR_LABEL_LEFT_PADDING: f32 = 14.0;
+const FLOATING_SIDEBAR_LABEL_RIGHT_PADDING: f32 = 12.0;
+const FLOATING_SIDEBAR_LABEL_GAP: f32 = 12.0;
+const FLOATING_SIDEBAR_PROGRAM_MAX_WIDTH: f32 = 72.0;
+const FLOATING_SIDEBAR_LABEL_Y_OFFSET: f32 = -1.5;
 
 /// Height of the progress bar in pixels
 const PROGRESS_BAR_HEIGHT: f32 = 3.0;
@@ -165,6 +209,11 @@ pub struct Island {
     rename_input: String,
     /// Caret blink timer
     rename_caret_time: Instant,
+    floating_sidebar_opacity: f32,
+    floating_sidebar_fraction: f32,
+    floating_sidebar_target_fraction: f32,
+    floating_sidebar_animation_from: f32,
+    floating_sidebar_animation_started: Option<Instant>,
 }
 
 impl Island {
@@ -173,6 +222,7 @@ impl Island {
         active_text_color: [f32; 4],
         border_color: [f32; 4],
         hide_if_single: bool,
+        floating_sidebar_opacity: f32,
     ) -> Self {
         Self {
             hide_if_single,
@@ -192,6 +242,11 @@ impl Island {
             tab_custom_titles: FxHashMap::default(),
             rename_input: String::new(),
             rename_caret_time: Instant::now(),
+            floating_sidebar_opacity,
+            floating_sidebar_fraction: 0.0,
+            floating_sidebar_target_fraction: 0.0,
+            floating_sidebar_animation_from: 0.0,
+            floating_sidebar_animation_started: None,
         }
     }
 
@@ -200,10 +255,12 @@ impl Island {
         inactive_text_color: [f32; 4],
         active_text_color: [f32; 4],
         border_color: [f32; 4],
+        floating_sidebar_opacity: f32,
     ) {
         self.inactive_text_color = inactive_text_color;
         self.active_text_color = active_text_color;
         self.border_color = border_color;
+        self.floating_sidebar_opacity = floating_sidebar_opacity;
     }
 
     /// Update the progress bar state from an OSC 9;4 report.
@@ -241,6 +298,39 @@ impl Island {
     /// Check if the progress bar needs continuous rendering (for animations)
     pub fn needs_redraw(&self) -> bool {
         matches!(self.progress_state, Some(ProgressState::Indeterminate))
+            || self.floating_sidebar_animation_started.is_some()
+    }
+
+    pub fn set_floating_sidebar_visible(&mut self, visible: bool) {
+        let target = if visible { 1.0 } else { 0.0 };
+        if self.floating_sidebar_target_fraction == target {
+            return;
+        }
+
+        self.floating_sidebar_animation_from = self.floating_sidebar_fraction;
+        self.floating_sidebar_target_fraction = target;
+        self.floating_sidebar_animation_started = Some(Instant::now());
+    }
+
+    fn floating_sidebar_fraction(&mut self) -> f32 {
+        let Some(started) = self.floating_sidebar_animation_started else {
+            return self.floating_sidebar_fraction;
+        };
+
+        let elapsed = started.elapsed();
+        if elapsed >= FLOATING_SIDEBAR_ANIMATION_DURATION {
+            self.floating_sidebar_fraction = self.floating_sidebar_target_fraction;
+            self.floating_sidebar_animation_started = None;
+            return self.floating_sidebar_fraction;
+        }
+
+        let t = elapsed.as_secs_f32() / FLOATING_SIDEBAR_ANIMATION_DURATION.as_secs_f32();
+        let eased = 1.0 - (1.0 - t).powi(3);
+        self.floating_sidebar_fraction = self.floating_sidebar_animation_from
+            + (self.floating_sidebar_target_fraction
+                - self.floating_sidebar_animation_from)
+                * eased;
+        self.floating_sidebar_fraction
     }
 
     /// Check if the progress bar should be auto-dismissed due to timeout.
@@ -348,10 +438,41 @@ impl Island {
         sugarloaf: &mut Sugarloaf,
         dimensions: (f32, f32, f32),
         context_manager: &ContextManager<EventProxy>,
+        navigation: &Navigation,
+        floating_sidebar_visible: bool,
+        floating_sidebar_embedded: bool,
+        terminal_background: [f32; 4],
     ) {
         let (window_width, _window_height, scale_factor) = dimensions;
         let num_tabs = context_manager.len();
         let current_tab_index = context_manager.current_index();
+
+        if navigation.is_floating_sidebar() {
+            if floating_sidebar_embedded {
+                self.render_floating_sidebar(
+                    sugarloaf,
+                    dimensions,
+                    context_manager,
+                    terminal_background,
+                    1.0,
+                    true,
+                );
+            } else {
+                self.render_floating_sidebar_indicator(sugarloaf, context_manager);
+                let animation_fraction = self.floating_sidebar_fraction();
+                if floating_sidebar_visible || animation_fraction > 0.0 {
+                    self.render_floating_sidebar(
+                        sugarloaf,
+                        dimensions,
+                        context_manager,
+                        terminal_background,
+                        animation_fraction,
+                        false,
+                    );
+                }
+            }
+            return;
+        }
 
         // Immediate-mode: no cached ids to hide. If we early-return
         // without drawing, the tabs just don't appear this frame.
@@ -480,6 +601,401 @@ impl Island {
 
         // Render the progress bar below the island
         self.render_progress_bar(sugarloaf, window_width, scale_factor);
+    }
+
+    fn render_floating_sidebar(
+        &mut self,
+        sugarloaf: &mut Sugarloaf,
+        dimensions: (f32, f32, f32),
+        context_manager: &ContextManager<EventProxy>,
+        terminal_background: [f32; 4],
+        animation_fraction: f32,
+        embedded: bool,
+    ) {
+        let (_window_width, window_height, scale_factor) = dimensions;
+        let num_tabs = context_manager.len();
+        let current_tab_index = context_manager.current_index();
+        if !embedded && self.hide_if_single && num_tabs == 1 {
+            return;
+        }
+
+        let height = window_height / scale_factor;
+        let top_offset = FLOATING_SIDEBAR_TOP_OFFSET;
+        let bottom_margin = if embedded {
+            0.0
+        } else {
+            FLOATING_SIDEBAR_BOTTOM_MARGIN
+        };
+        let height = (height - top_offset - bottom_margin).max(0.0);
+        if height <= 0.0 {
+            return;
+        }
+
+        let x_position = if embedded {
+            0.0
+        } else {
+            FLOATING_SIDEBAR_LEFT_MARGIN
+                - (1.0 - animation_fraction)
+                    * (FLOATING_SIDEBAR_WIDTH + FLOATING_SIDEBAR_LEFT_MARGIN)
+        };
+        let visible_alpha = self.floating_sidebar_opacity * animation_fraction;
+        let background = [
+            terminal_background[0],
+            terminal_background[1],
+            terminal_background[2],
+            visible_alpha,
+        ];
+
+        if embedded {
+            let background_top_offset =
+                (top_offset - FLOATING_SIDEBAR_EMBEDDED_TOP_OVERLAP).max(0.0);
+            let background_height = height + top_offset - background_top_offset;
+            let divider_height = (background_height
+                - FLOATING_SIDEBAR_EMBEDDED_DIVIDER_BOTTOM_GAP)
+                .max(0.0);
+            sugarloaf.rect(
+                None,
+                x_position,
+                background_top_offset,
+                FLOATING_SIDEBAR_WIDTH,
+                background_height,
+                background,
+                0.0,
+                0,
+            );
+            sugarloaf.rect(
+                None,
+                x_position,
+                background_top_offset,
+                FLOATING_SIDEBAR_EDGE_DEPTH,
+                background_height,
+                [0.0, 0.0, 0.0, FLOATING_SIDEBAR_EMBEDDED_DIVIDER_DARK_ALPHA],
+                0.0,
+                0,
+            );
+            let divider_x = x_position + FLOATING_SIDEBAR_WIDTH - 3.0;
+            let outer_line_y = background_top_offset + FLOATING_SIDEBAR_EDGE_DEPTH;
+            let outer_line_height =
+                (divider_height - FLOATING_SIDEBAR_EDGE_DEPTH * 2.0).max(0.0);
+            sugarloaf.rect(
+                None,
+                divider_x,
+                outer_line_y,
+                FLOATING_SIDEBAR_EDGE_DEPTH,
+                outer_line_height,
+                [0.0, 0.0, 0.0, FLOATING_SIDEBAR_EMBEDDED_DIVIDER_DARK_ALPHA],
+                0.0,
+                0,
+            );
+            let light_x = divider_x + FLOATING_SIDEBAR_EDGE_DEPTH;
+            let light_middle_y = background_top_offset + FLOATING_SIDEBAR_EDGE_DEPTH;
+            let light_middle_height =
+                (divider_height - FLOATING_SIDEBAR_EDGE_DEPTH * 2.0).max(0.0);
+            sugarloaf.rect(
+                None,
+                light_x,
+                light_middle_y,
+                FLOATING_SIDEBAR_EDGE_DEPTH,
+                light_middle_height,
+                [1.0, 1.0, 1.0, FLOATING_SIDEBAR_EMBEDDED_DIVIDER_LIGHT_ALPHA],
+                0.0,
+                0,
+            );
+            sugarloaf.rect(
+                None,
+                light_x,
+                background_top_offset,
+                FLOATING_SIDEBAR_EDGE_DEPTH,
+                FLOATING_SIDEBAR_EMBEDDED_DIVIDER_CAP_SIZE,
+                [0.0, 0.0, 0.0, FLOATING_SIDEBAR_EMBEDDED_DIVIDER_DARK_ALPHA],
+                0.0,
+                0,
+            );
+            sugarloaf.rect(
+                None,
+                light_x,
+                background_top_offset + divider_height
+                    - FLOATING_SIDEBAR_EMBEDDED_DIVIDER_CAP_SIZE,
+                FLOATING_SIDEBAR_EDGE_DEPTH,
+                FLOATING_SIDEBAR_EMBEDDED_DIVIDER_CAP_SIZE,
+                [0.0, 0.0, 0.0, FLOATING_SIDEBAR_EMBEDDED_DIVIDER_DARK_ALPHA],
+                0.0,
+                0,
+            );
+            sugarloaf.rect(
+                None,
+                divider_x + FLOATING_SIDEBAR_EDGE_DEPTH * 2.0,
+                outer_line_y,
+                FLOATING_SIDEBAR_EDGE_DEPTH,
+                outer_line_height,
+                [0.0, 0.0, 0.0, FLOATING_SIDEBAR_EMBEDDED_DIVIDER_DARK_ALPHA],
+                0.0,
+                0,
+            );
+        } else {
+            sugarloaf.rounded_rect(
+                None,
+                x_position - FLOATING_SIDEBAR_EDGE_DEPTH,
+                top_offset - FLOATING_SIDEBAR_EDGE_DEPTH,
+                FLOATING_SIDEBAR_WIDTH + FLOATING_SIDEBAR_EDGE_DEPTH * 2.0,
+                height + FLOATING_SIDEBAR_EDGE_DEPTH * 2.0,
+                background,
+                0.0,
+                FLOATING_SIDEBAR_RADIUS + FLOATING_SIDEBAR_EDGE_DEPTH,
+                0,
+            );
+            sugarloaf.rounded_rect(
+                None,
+                x_position - FLOATING_SIDEBAR_EDGE_DEPTH,
+                top_offset - FLOATING_SIDEBAR_EDGE_DEPTH,
+                FLOATING_SIDEBAR_WIDTH + FLOATING_SIDEBAR_EDGE_DEPTH * 2.0,
+                height + FLOATING_SIDEBAR_EDGE_DEPTH * 2.0,
+                [
+                    0.0,
+                    0.0,
+                    0.0,
+                    FLOATING_SIDEBAR_OUTER_EDGE_ALPHA * animation_fraction,
+                ],
+                0.0,
+                FLOATING_SIDEBAR_RADIUS + FLOATING_SIDEBAR_EDGE_DEPTH,
+                0,
+            );
+            sugarloaf.rounded_rect(
+                None,
+                x_position,
+                top_offset,
+                FLOATING_SIDEBAR_WIDTH,
+                height,
+                background,
+                0.0,
+                FLOATING_SIDEBAR_RADIUS,
+                0,
+            );
+            sugarloaf.rounded_rect(
+                None,
+                x_position,
+                top_offset,
+                FLOATING_SIDEBAR_WIDTH,
+                height,
+                [
+                    1.0,
+                    1.0,
+                    1.0,
+                    FLOATING_SIDEBAR_INSET_EDGE_ALPHA * animation_fraction,
+                ],
+                0.0,
+                FLOATING_SIDEBAR_RADIUS,
+                0,
+            );
+            sugarloaf.rounded_rect(
+                None,
+                x_position + FLOATING_SIDEBAR_EDGE_DEPTH,
+                top_offset + FLOATING_SIDEBAR_EDGE_DEPTH,
+                FLOATING_SIDEBAR_WIDTH - FLOATING_SIDEBAR_EDGE_DEPTH * 2.0,
+                (height - FLOATING_SIDEBAR_EDGE_DEPTH * 2.0).max(0.0),
+                background,
+                0.0,
+                (FLOATING_SIDEBAR_RADIUS - FLOATING_SIDEBAR_EDGE_DEPTH).max(0.0),
+                0,
+            );
+        }
+
+        let mut y_position = top_offset + FLOATING_SIDEBAR_PADDING;
+        let text_opts = DrawOpts {
+            font_size: TITLE_FONT_SIZE,
+            ..DrawOpts::default()
+        };
+
+        for tab_index in 0..num_tabs {
+            let is_active = tab_index == current_tab_index;
+            let row_y = y_position;
+            let row_height = FLOATING_SIDEBAR_TAB_HEIGHT;
+            let tab_x = x_position + FLOATING_SIDEBAR_PADDING;
+            let tab_width = FLOATING_SIDEBAR_WIDTH - FLOATING_SIDEBAR_PADDING * 2.0;
+
+            if let Some(bg_color) = self.tab_colors.get(&tab_index) {
+                sugarloaf.rounded_rect(
+                    None,
+                    tab_x,
+                    row_y,
+                    tab_width,
+                    row_height,
+                    [
+                        0.0,
+                        0.0,
+                        0.0,
+                        FLOATING_SIDEBAR_TAB_BORDER_ALPHA * animation_fraction,
+                    ],
+                    0.05,
+                    FLOATING_SIDEBAR_TAB_RADIUS,
+                    0,
+                );
+                sugarloaf.rounded_rect(
+                    None,
+                    tab_x + FLOATING_SIDEBAR_EDGE_DEPTH,
+                    row_y + FLOATING_SIDEBAR_EDGE_DEPTH,
+                    tab_width - FLOATING_SIDEBAR_EDGE_DEPTH * 2.0,
+                    row_height - FLOATING_SIDEBAR_EDGE_DEPTH * 2.0,
+                    [
+                        bg_color[0],
+                        bg_color[1],
+                        bg_color[2],
+                        bg_color[3] * animation_fraction,
+                    ],
+                    0.05,
+                    (FLOATING_SIDEBAR_TAB_RADIUS - FLOATING_SIDEBAR_EDGE_DEPTH).max(0.0),
+                    0,
+                );
+            }
+
+            if is_active {
+                sugarloaf.rounded_rect(
+                    None,
+                    tab_x,
+                    row_y,
+                    tab_width,
+                    row_height,
+                    [
+                        0.0,
+                        0.0,
+                        0.0,
+                        FLOATING_SIDEBAR_TAB_BORDER_ALPHA * animation_fraction,
+                    ],
+                    0.05,
+                    FLOATING_SIDEBAR_TAB_RADIUS,
+                    0,
+                );
+                sugarloaf.rounded_rect(
+                    None,
+                    tab_x + FLOATING_SIDEBAR_EDGE_DEPTH,
+                    row_y + FLOATING_SIDEBAR_EDGE_DEPTH,
+                    tab_width - FLOATING_SIDEBAR_EDGE_DEPTH * 2.0,
+                    row_height - FLOATING_SIDEBAR_EDGE_DEPTH * 2.0,
+                    [
+                        self.border_color[0],
+                        self.border_color[1],
+                        self.border_color[2],
+                        0.18 * animation_fraction,
+                    ],
+                    0.05,
+                    (FLOATING_SIDEBAR_TAB_RADIUS - FLOATING_SIDEBAR_EDGE_DEPTH).max(0.0),
+                    0,
+                );
+            }
+
+            let (raw_title, raw_program) =
+                self.get_title_parts_for_tab(context_manager, tab_index);
+            if !raw_title.is_empty() {
+                let color = if is_active {
+                    self.active_text_color
+                } else {
+                    self.inactive_text_color
+                };
+                let title_opts = DrawOpts {
+                    color: color_u8([
+                        color[0],
+                        color[1],
+                        color[2],
+                        color[3] * animation_fraction,
+                    ]),
+                    ..text_opts
+                };
+                let text_y = row_y + (row_height / 2.0) - (TITLE_FONT_SIZE / 2.0)
+                    + FLOATING_SIDEBAR_LABEL_Y_OFFSET;
+                let program_opts = DrawOpts {
+                    color: color_u8([
+                        color[0],
+                        color[1],
+                        color[2],
+                        color[3] * 0.72 * animation_fraction,
+                    ]),
+                    ..text_opts
+                };
+
+                let program = raw_program.as_deref().map(|program| {
+                    fit_title_to_width(
+                        sugarloaf,
+                        program,
+                        FLOATING_SIDEBAR_PROGRAM_MAX_WIDTH,
+                    )
+                });
+                let program_width = program
+                    .as_ref()
+                    .map(|program| sugarloaf.text_mut().measure(program, &program_opts))
+                    .unwrap_or(0.0);
+                let title_reserved_width = if program_width > 0.0 {
+                    program_width + FLOATING_SIDEBAR_LABEL_GAP
+                } else {
+                    0.0
+                };
+                let max_text_width = (tab_width
+                    - FLOATING_SIDEBAR_LABEL_LEFT_PADDING
+                    - FLOATING_SIDEBAR_LABEL_RIGHT_PADDING
+                    - title_reserved_width)
+                    .max(0.0);
+                let title = fit_title_to_width(sugarloaf, &raw_title, max_text_width);
+                sugarloaf.text_mut().draw(
+                    tab_x + FLOATING_SIDEBAR_LABEL_LEFT_PADDING,
+                    text_y,
+                    &title,
+                    &title_opts,
+                );
+                if let Some(program) = program {
+                    sugarloaf.text_mut().draw(
+                        tab_x + tab_width
+                            - FLOATING_SIDEBAR_LABEL_RIGHT_PADDING
+                            - program_width,
+                        text_y,
+                        &program,
+                        &program_opts,
+                    );
+                }
+            }
+
+            y_position += row_height;
+        }
+    }
+
+    fn render_floating_sidebar_indicator(
+        &mut self,
+        sugarloaf: &mut Sugarloaf,
+        context_manager: &ContextManager<EventProxy>,
+    ) {
+        #[cfg(target_os = "macos")]
+        {
+            let label = format!("#{}", context_manager.current_index() + 1);
+            let opts = DrawOpts {
+                font_size: FLOATING_SIDEBAR_INDICATOR_FONT_SIZE,
+                color: color_u8(self.active_text_color),
+                ..DrawOpts::default()
+            };
+            let text_width = sugarloaf.text_mut().measure(&label, &opts);
+            let width = text_width + FLOATING_SIDEBAR_INDICATOR_PADDING_X * 2.0;
+            let x = ISLAND_MARGIN_LEFT_MACOS;
+            let y = (ISLAND_HEIGHT - FLOATING_SIDEBAR_INDICATOR_HEIGHT) / 2.0;
+            sugarloaf.rounded_rect(
+                None,
+                x,
+                y,
+                width,
+                FLOATING_SIDEBAR_INDICATOR_HEIGHT,
+                [0.02, 0.02, 0.025, self.floating_sidebar_opacity],
+                0.0,
+                FLOATING_SIDEBAR_INDICATOR_HEIGHT / 2.0,
+                0,
+            );
+            sugarloaf.text_mut().draw(
+                x + FLOATING_SIDEBAR_INDICATOR_PADDING_X,
+                y + (FLOATING_SIDEBAR_INDICATOR_HEIGHT / 2.0)
+                    - (FLOATING_SIDEBAR_INDICATOR_FONT_SIZE / 2.0)
+                    + FLOATING_SIDEBAR_INDICATOR_TEXT_Y_OFFSET,
+                &label,
+                &opts,
+            );
+        }
+
+        #[cfg(not(target_os = "macos"))]
+        let _ = (sugarloaf, context_manager);
     }
 
     /// Toggle the color picker for a given tab index
@@ -794,32 +1310,80 @@ impl Island {
         self.color_picker_tab.is_some()
     }
 
-    /// Get the title text for a specific tab index
+    /// Get the title text for the fixed top tab strip.
     fn get_title_for_tab(
         &self,
         context_manager: &ContextManager<EventProxy>,
         tab_index: usize,
     ) -> String {
+        self.get_title_parts_for_tab(context_manager, tab_index).0
+    }
+
+    fn normalize_program_label(program: &str) -> Option<String> {
+        let mut saw_env = false;
+        for token in program.split_whitespace() {
+            if token == "env" {
+                saw_env = true;
+                continue;
+            }
+
+            let assignment = token
+                .split_once('=')
+                .map(|(key, _)| {
+                    let mut chars = key.chars();
+                    matches!(chars.next(), Some('_') | Some('a'..='z') | Some('A'..='Z'))
+                        && chars.all(|c| c == '_' || c.is_ascii_alphanumeric())
+                })
+                .unwrap_or(false);
+            if assignment {
+                continue;
+            }
+
+            if saw_env && token.starts_with('-') {
+                continue;
+            }
+
+            let program = token.rsplit('/').next().unwrap_or(token).trim();
+            if program.is_empty() || program == "zsh" {
+                return None;
+            }
+
+            return Some(program.to_string());
+        }
+
+        None
+    }
+
+    /// Get the title text and optional right-side program label for a tab.
+    fn get_title_parts_for_tab(
+        &self,
+        context_manager: &ContextManager<EventProxy>,
+        tab_index: usize,
+    ) -> (String, Option<String>) {
+        let program = context_manager
+            .titles
+            .titles
+            .get(&tab_index)
+            .and_then(|context_title| context_title.extra.as_ref())
+            .and_then(|extra| Self::normalize_program_label(&extra.program));
+
         // Custom user-set title takes priority
         if let Some(custom) = self.tab_custom_titles.get(&tab_index) {
-            return custom.clone();
+            return (custom.clone(), program);
         }
 
         if let Some(context_title) = context_manager.titles.titles.get(&tab_index) {
             if !context_title.content.is_empty() {
-                return context_title.content.clone();
+                let content = context_title.content.trim();
+                let program = program.filter(|program| program != content);
+                return (content.to_string(), program);
             }
 
-            // Fallback to program name if title is empty
-            if let Some(ref extra) = context_title.extra {
-                if !extra.program.is_empty() {
-                    return extra.program.clone();
-                }
-            }
+            return (String::from("~"), program);
         }
 
         // Default fallback - show tab number
-        String::from("~")
+        (String::from("~"), None)
     }
 }
 
@@ -844,7 +1408,7 @@ mod tests {
         let active_color = [0.9, 0.9, 0.9, 1.0];
         let border_color = [0.7, 0.7, 0.7, 1.0];
 
-        let island = Island::new(inactive_color, active_color, border_color, true);
+        let island = Island::new(inactive_color, active_color, border_color, true, 0.92);
 
         assert_eq!(island.inactive_text_color, inactive_color);
         assert_eq!(island.active_text_color, active_color);
@@ -859,6 +1423,7 @@ mod tests {
             [1.0, 1.0, 1.0, 1.0],
             [0.8, 0.8, 0.8, 1.0],
             false,
+            0.92,
         );
         assert_eq!(island.height(), ISLAND_HEIGHT);
     }
@@ -869,6 +1434,7 @@ mod tests {
             [0.9, 0.9, 0.9, 1.0],
             [0.7, 0.7, 0.7, 1.0],
             false,
+            0.92,
         )
     }
 

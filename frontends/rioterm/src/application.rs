@@ -499,6 +499,8 @@ impl ApplicationHandler<EventPayload> for Application<'_> {
                     } else {
                         let size = route.window.screen.context_manager.len();
                         route.window.screen.resize_top_or_bottom_line(size);
+                        route.window.screen.refresh_embedded_sidebar_layout();
+                        route.request_redraw();
                     }
                 }
             }
@@ -986,6 +988,7 @@ impl ApplicationHandler<EventPayload> for Application<'_> {
 
             WindowEvent::ModifiersChanged(modifiers) => {
                 route.window.screen.set_modifiers(modifiers);
+                route.request_redraw();
             }
 
             WindowEvent::MouseInput { state, button, .. } => {
@@ -1249,6 +1252,28 @@ impl ApplicationHandler<EventPayload> for Application<'_> {
                 route.window.screen.mouse.x = x;
                 route.window.screen.mouse.y = y;
                 route.window.screen.mouse.raw_y = position.y;
+
+                if route.window.screen.update_floating_sidebar_hover() {
+                    route.window.screen.mark_dirty();
+                    route.request_redraw();
+                }
+
+                if route.window.screen.renderer.floating_sidebar_visible() {
+                    use crate::renderer::island::{
+                        FLOATING_SIDEBAR_LEFT_MARGIN, FLOATING_SIDEBAR_WIDTH,
+                    };
+                    let scale = route.window.screen.sugarloaf.scale_factor();
+                    let sidebar_right =
+                        if route.window.screen.renderer.floating_sidebar_embedded() {
+                            FLOATING_SIDEBAR_WIDTH
+                        } else {
+                            FLOATING_SIDEBAR_LEFT_MARGIN + FLOATING_SIDEBAR_WIDTH
+                        };
+                    if (x as f32 / scale) <= sidebar_right {
+                        route.window.winit_window.set_cursor(CursorIcon::Default);
+                        return;
+                    }
+                }
 
                 // Handle assistant overlay hover
                 if route.window.screen.renderer.assistant.is_active() {
@@ -1844,7 +1869,29 @@ impl ApplicationHandler<EventPayload> for Application<'_> {
     }
 
     fn about_to_wait(&mut self, event_loop: &ActiveEventLoop) {
-        let control_flow = match self.scheduler.update() {
+        let mut next_deadline = self.scheduler.update();
+
+        for route in self.router.routes.values_mut() {
+            if route.path != RoutePath::Terminal {
+                continue;
+            }
+
+            if route.window.screen.update_floating_sidebar_command_reveal() {
+                route.window.screen.mark_dirty();
+                route.request_redraw();
+            }
+
+            if let Some(reveal_at) =
+                route.window.screen.next_floating_sidebar_command_reveal()
+            {
+                next_deadline = Some(match next_deadline {
+                    Some(deadline) => deadline.min(reveal_at),
+                    None => reveal_at,
+                });
+            }
+        }
+
+        let control_flow = match next_deadline {
             Some(instant) => ControlFlow::WaitUntil(instant),
             None => ControlFlow::Wait,
         };

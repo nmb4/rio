@@ -107,6 +107,8 @@ pub struct PlatformNavigation {
         rename = "unfocused-split-fill"
     )]
     pub unfocused_split_fill: Option<crate::config::colors::ColorArray>,
+    #[serde(default = "Option::default", rename = "floating-sidebar-opacity")]
+    pub floating_sidebar_opacity: Option<f32>,
 }
 
 /// Platform-specific renderer config with optional fields for selective override

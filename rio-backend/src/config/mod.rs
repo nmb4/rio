@@ -585,6 +585,9 @@ impl Config {
             if let Some(fill) = navigation_overwrite.unfocused_split_fill {
                 self.navigation.unfocused_split_fill = Some(fill);
             }
+            if let Some(opacity) = navigation_overwrite.floating_sidebar_opacity {
+                self.navigation.floating_sidebar_opacity = opacity;
+            }
         }
 
         // Clamp after platform merge so both the base and any override go
@@ -592,6 +595,10 @@ impl Config {
         self.navigation.unfocused_split_opacity =
             crate::config::navigation::clamp_unfocused_split_opacity(
                 self.navigation.unfocused_split_opacity,
+            );
+        self.navigation.floating_sidebar_opacity =
+            crate::config::navigation::clamp_floating_sidebar_opacity(
+                self.navigation.floating_sidebar_opacity,
             );
 
         // Merge renderer fields individually
