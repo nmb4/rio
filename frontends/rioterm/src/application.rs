@@ -1863,7 +1863,29 @@ impl ApplicationHandler<EventPayload> for Application<'_> {
     }
 
     fn about_to_wait(&mut self, event_loop: &ActiveEventLoop) {
-        let control_flow = match self.scheduler.update() {
+        let mut next_deadline = self.scheduler.update();
+
+        for route in self.router.routes.values_mut() {
+            if route.path != RoutePath::Terminal {
+                continue;
+            }
+
+            if route.window.screen.update_floating_sidebar_command_reveal() {
+                route.window.screen.mark_dirty();
+                route.request_redraw();
+            }
+
+            if let Some(reveal_at) =
+                route.window.screen.next_floating_sidebar_command_reveal()
+            {
+                next_deadline = Some(match next_deadline {
+                    Some(deadline) => deadline.min(reveal_at),
+                    None => reveal_at,
+                });
+            }
+        }
+
+        let control_flow = match next_deadline {
             Some(instant) => ControlFlow::WaitUntil(instant),
             None => ControlFlow::Wait,
         };

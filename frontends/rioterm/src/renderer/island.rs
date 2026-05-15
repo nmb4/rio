@@ -51,9 +51,10 @@ pub const FLOATING_SIDEBAR_TOP_OFFSET: f32 = ISLAND_HEIGHT;
 pub const FLOATING_SIDEBAR_TOP_OFFSET: f32 = 0.0;
 
 const FLOATING_SIDEBAR_BOTTOM_MARGIN: f32 = 8.0;
-const FLOATING_SIDEBAR_INDICATOR_FONT_SIZE: f32 = 12.0;
-const FLOATING_SIDEBAR_INDICATOR_HEIGHT: f32 = 20.0;
-const FLOATING_SIDEBAR_INDICATOR_PADDING_X: f32 = 8.0;
+const FLOATING_SIDEBAR_INDICATOR_FONT_SIZE: f32 = 11.5;
+const FLOATING_SIDEBAR_INDICATOR_HEIGHT: f32 = 17.0;
+const FLOATING_SIDEBAR_INDICATOR_PADDING_X: f32 = 9.0;
+const FLOATING_SIDEBAR_INDICATOR_TEXT_Y_OFFSET: f32 = -1.0;
 const FLOATING_SIDEBAR_ANIMATION_DURATION: Duration = Duration::from_millis(160);
 const FLOATING_SIDEBAR_EDGE_DEPTH: f32 = 1.0;
 const FLOATING_SIDEBAR_OUTER_EDGE_ALPHA: f32 = 0.20;
@@ -64,6 +65,7 @@ const FLOATING_SIDEBAR_LABEL_LEFT_PADDING: f32 = 14.0;
 const FLOATING_SIDEBAR_LABEL_RIGHT_PADDING: f32 = 12.0;
 const FLOATING_SIDEBAR_LABEL_GAP: f32 = 12.0;
 const FLOATING_SIDEBAR_PROGRAM_MAX_WIDTH: f32 = 72.0;
+const FLOATING_SIDEBAR_LABEL_Y_OFFSET: f32 = -1.5;
 
 /// Height of the progress bar in pixels
 const PROGRESS_BAR_HEIGHT: f32 = 3.0;
@@ -782,7 +784,8 @@ impl Island {
                     ]),
                     ..text_opts
                 };
-                let text_y = row_y + (row_height / 2.0) - (TITLE_FONT_SIZE / 2.0);
+                let text_y = row_y + (row_height / 2.0) - (TITLE_FONT_SIZE / 2.0)
+                    + FLOATING_SIDEBAR_LABEL_Y_OFFSET;
                 let program_opts = DrawOpts {
                     color: color_u8([
                         color[0],
@@ -868,7 +871,8 @@ impl Island {
             sugarloaf.text_mut().draw(
                 x + FLOATING_SIDEBAR_INDICATOR_PADDING_X,
                 y + (FLOATING_SIDEBAR_INDICATOR_HEIGHT / 2.0)
-                    - (FLOATING_SIDEBAR_INDICATOR_FONT_SIZE / 2.0),
+                    - (FLOATING_SIDEBAR_INDICATOR_FONT_SIZE / 2.0)
+                    + FLOATING_SIDEBAR_INDICATOR_TEXT_Y_OFFSET,
                 &label,
                 &opts,
             );

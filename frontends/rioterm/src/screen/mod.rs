@@ -53,6 +53,7 @@ use rio_window::keyboard::{Key, KeyLocation, ModifiersState, NamedKey};
 use rio_window::platform::modifier_supplement::KeyEventExtModifierSupplement;
 use std::error::Error;
 use std::ffi::OsStr;
+use std::time::{Duration, Instant};
 use touch::TouchPurpose;
 
 /// Maximum number of lines for the blocking search while still typing the search regex.
@@ -60,6 +61,8 @@ const MAX_SEARCH_WHILE_TYPING: Option<usize> = Some(1000);
 
 /// Maximum number of search terms stored in the history.
 const MAX_SEARCH_HISTORY_SIZE: usize = 255;
+
+const FLOATING_SIDEBAR_COMMAND_REVEAL_DELAY: Duration = Duration::from_millis(500);
 
 pub struct Screen<'screen> {
     bindings: crate::bindings::KeyBindings,
@@ -92,6 +95,7 @@ pub struct Screen<'screen> {
     pub grid_rasterizer: crate::grid_emit::GridGlyphRasterizer,
     floating_sidebar_mouse_visible: bool,
     floating_sidebar_command_visible: bool,
+    floating_sidebar_command_reveal_at: Option<Instant>,
 }
 
 pub struct ScreenWindowProperties {
@@ -331,6 +335,7 @@ impl Screen<'_> {
             grid_rasterizer: crate::grid_emit::GridGlyphRasterizer::new(),
             floating_sidebar_mouse_visible: false,
             floating_sidebar_command_visible: false,
+            floating_sidebar_command_reveal_at: None,
         })
     }
 
@@ -404,8 +409,10 @@ impl Screen<'_> {
         self.modifiers = modifiers;
         if self.renderer.navigation.is_floating_sidebar()
             && !self.modifiers.state().super_key()
-            && self.floating_sidebar_command_visible
+            && (self.floating_sidebar_command_visible
+                || self.floating_sidebar_command_reveal_at.is_some())
         {
+            self.floating_sidebar_command_reveal_at = None;
             self.floating_sidebar_command_visible = false;
             self.sync_floating_sidebar_visibility();
             self.mark_dirty();
@@ -431,9 +438,45 @@ impl Screen<'_> {
         if self.renderer.navigation.is_floating_sidebar()
             && self.modifiers.state().super_key()
         {
-            self.floating_sidebar_command_visible = true;
-            self.sync_floating_sidebar_visibility();
+            if self.floating_sidebar_command_visible {
+                return;
+            }
+
+            self.floating_sidebar_command_reveal_at =
+                Some(Instant::now() + FLOATING_SIDEBAR_COMMAND_REVEAL_DELAY);
         }
+    }
+
+    #[inline]
+    pub fn next_floating_sidebar_command_reveal(&self) -> Option<Instant> {
+        self.floating_sidebar_command_reveal_at
+    }
+
+    #[inline]
+    pub fn update_floating_sidebar_command_reveal(&mut self) -> bool {
+        let Some(reveal_at) = self.floating_sidebar_command_reveal_at else {
+            return false;
+        };
+
+        if !self.renderer.navigation.is_floating_sidebar()
+            || !self.modifiers.state().super_key()
+            || (self.renderer.navigation.hide_if_single
+                && self.context_manager.len() == 1)
+        {
+            self.floating_sidebar_command_reveal_at = None;
+            self.floating_sidebar_command_visible = false;
+            self.sync_floating_sidebar_visibility();
+            return true;
+        }
+
+        if Instant::now() < reveal_at {
+            return false;
+        }
+
+        self.floating_sidebar_command_reveal_at = None;
+        self.floating_sidebar_command_visible = true;
+        self.sync_floating_sidebar_visibility();
+        true
     }
 
     pub fn update_floating_sidebar_hover(&mut self) -> bool {
@@ -555,6 +598,7 @@ impl Screen<'_> {
         if !self.renderer.navigation.is_floating_sidebar() {
             self.floating_sidebar_mouse_visible = false;
             self.floating_sidebar_command_visible = false;
+            self.floating_sidebar_command_reveal_at = None;
         }
         self.sync_floating_sidebar_visibility();
         self.context_manager.config.should_update_title_extra =
@@ -1410,6 +1454,7 @@ impl Screen<'_> {
                             old_index,
                             new_index,
                         );
+                        self.show_floating_sidebar_for_command();
                         self.mark_dirty();
                     }
                     Act::SelectPrevSplitOrTab => {
@@ -1423,6 +1468,7 @@ impl Screen<'_> {
                             old_index,
                             new_index,
                         );
+                        self.show_floating_sidebar_for_command();
                         self.mark_dirty();
                     }
                     Act::SelectTab(tab_index) => {
@@ -1448,6 +1494,7 @@ impl Screen<'_> {
                             old_index,
                             new_index,
                         );
+                        self.show_floating_sidebar_for_command();
                         self.mark_dirty();
                     }
                     Act::SelectNextTab => {
@@ -1461,6 +1508,7 @@ impl Screen<'_> {
                             old_index,
                             new_index,
                         );
+                        self.show_floating_sidebar_for_command();
                         self.mark_dirty();
                     }
                     Act::MoveCurrentTabToPrev => {
@@ -1474,6 +1522,7 @@ impl Screen<'_> {
                             old_index,
                             new_index,
                         );
+                        self.show_floating_sidebar_for_command();
                         self.mark_dirty();
                     }
                     Act::MoveCurrentTabToNext => {
@@ -1487,6 +1536,7 @@ impl Screen<'_> {
                             old_index,
                             new_index,
                         );
+                        self.show_floating_sidebar_for_command();
                         self.mark_dirty();
                     }
                     Act::SelectPrevTab => {
@@ -1500,6 +1550,7 @@ impl Screen<'_> {
                             old_index,
                             new_index,
                         );
+                        self.show_floating_sidebar_for_command();
                         self.mark_dirty();
                     }
                     Act::ReceiveChar | Act::None => (),
