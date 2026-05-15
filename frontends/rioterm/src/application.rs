@@ -1261,9 +1261,13 @@ impl ApplicationHandler<EventPayload> for Application<'_> {
                         FLOATING_SIDEBAR_LEFT_MARGIN, FLOATING_SIDEBAR_WIDTH,
                     };
                     let scale = route.window.screen.sugarloaf.scale_factor();
-                    if (x as f32 / scale)
-                        <= FLOATING_SIDEBAR_LEFT_MARGIN + FLOATING_SIDEBAR_WIDTH
-                    {
+                    let sidebar_right =
+                        if route.window.screen.renderer.floating_sidebar_embedded() {
+                            FLOATING_SIDEBAR_WIDTH
+                        } else {
+                            FLOATING_SIDEBAR_LEFT_MARGIN + FLOATING_SIDEBAR_WIDTH
+                        };
+                    if (x as f32 / scale) <= sidebar_right {
                         route.window.winit_window.set_cursor(CursorIcon::Default);
                         return;
                     }

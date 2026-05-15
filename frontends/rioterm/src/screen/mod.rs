@@ -64,6 +64,32 @@ const MAX_SEARCH_HISTORY_SIZE: usize = 255;
 
 const FLOATING_SIDEBAR_COMMAND_REVEAL_DELAY: Duration = Duration::from_millis(500);
 
+#[inline]
+fn floating_sidebar_reserved_width(
+    navigation: &rio_backend::config::navigation::Navigation,
+    embedded: bool,
+    num_tabs: usize,
+) -> f32 {
+    if navigation.is_floating_sidebar()
+        && embedded
+        && !(navigation.hide_if_single && num_tabs == 1)
+    {
+        crate::renderer::island::FLOATING_SIDEBAR_WIDTH
+    } else {
+        0.0
+    }
+}
+
+#[inline]
+fn margin_left_for_sidebar(
+    navigation: &rio_backend::config::navigation::Navigation,
+    base_left: f32,
+    embedded: bool,
+    num_tabs: usize,
+) -> f32 {
+    base_left + floating_sidebar_reserved_width(navigation, embedded, num_tabs)
+}
+
 pub struct Screen<'screen> {
     bindings: crate::bindings::KeyBindings,
     mouse_bindings: Vec<MouseBinding>,
@@ -244,18 +270,20 @@ impl Screen<'_> {
         let rich_text_id = next_rich_text_id();
 
         // Create unscaled margin for ContextDimension (compute() will scale it)
+        let margin_left =
+            margin_left_for_sidebar(&config.navigation, config.margin.left, false, 1);
         let margin = Margin::new(
             padding_y_top,
             config.margin.right,
             padding_y_bottom,
-            config.margin.left,
+            margin_left,
         );
         // Create scaled margin for ContextGrid (already in physical pixels)
         let scaled_margin = Margin::new(
             padding_y_top * scale as f32,
             config.margin.right * scale as f32,
             padding_y_bottom * scale as f32,
-            config.margin.left * scale as f32,
+            margin_left * scale as f32,
         );
         let (text_dimensions, cell_metrics) = sugarloaf.compute_cell_metrics(
             config.fonts.size,
@@ -427,16 +455,72 @@ impl Screen<'_> {
     #[inline]
     fn sync_floating_sidebar_visibility(&mut self) {
         let visible = self.renderer.navigation.is_floating_sidebar()
-            && self.floating_sidebar_visible()
+            && (self.floating_sidebar_embedded() || self.floating_sidebar_visible())
             && !(self.renderer.navigation.hide_if_single
                 && self.context_manager.len() == 1);
         self.renderer.set_floating_sidebar_visible(visible);
     }
 
     #[inline]
+    fn floating_sidebar_embedded(&self) -> bool {
+        self.renderer.floating_sidebar_embedded()
+    }
+
+    #[inline]
+    fn floating_sidebar_margin_left(&self, num_tabs: usize) -> f32 {
+        margin_left_for_sidebar(
+            &self.renderer.navigation,
+            self.renderer.margin.left,
+            self.floating_sidebar_embedded(),
+            num_tabs,
+        )
+    }
+
+    fn update_floating_sidebar_layout(&mut self) {
+        let num_tabs = self.context_manager.len();
+        let scale = self.sugarloaf.scale_factor();
+        let padding_y_top = padding_top_from_config(
+            &self.renderer.navigation,
+            self.renderer.margin.top,
+            num_tabs,
+            self.renderer.macos_use_unified_titlebar,
+        );
+        let padding_y_bottom = self.renderer.margin.bottom;
+        let padding_x_left = self.floating_sidebar_margin_left(num_tabs);
+
+        for context_grid in self.context_manager.contexts_mut() {
+            context_grid.update_scaled_margin(Margin::new(
+                padding_y_top * scale,
+                self.renderer.margin.right * scale,
+                padding_y_bottom * scale,
+                padding_x_left * scale,
+            ));
+            context_grid.update_dimensions(&mut self.sugarloaf);
+        }
+
+        self.resize_all_contexts();
+    }
+
+    fn toggle_floating_sidebar_mode(&mut self) {
+        if !self.renderer.navigation.is_floating_sidebar() {
+            return;
+        }
+
+        let embedded = !self.renderer.floating_sidebar_embedded();
+        self.renderer.set_floating_sidebar_embedded(embedded);
+        self.floating_sidebar_mouse_visible = false;
+        self.floating_sidebar_command_visible = false;
+        self.floating_sidebar_command_reveal_at = None;
+        self.sync_floating_sidebar_visibility();
+        self.update_floating_sidebar_layout();
+        self.mark_dirty();
+    }
+
+    #[inline]
     fn show_floating_sidebar_for_command(&mut self) {
         if self.renderer.navigation.is_floating_sidebar()
             && self.modifiers.state().super_key()
+            && !self.floating_sidebar_embedded()
         {
             if self.floating_sidebar_command_visible {
                 return;
@@ -480,7 +564,9 @@ impl Screen<'_> {
     }
 
     pub fn update_floating_sidebar_hover(&mut self) -> bool {
-        if !self.renderer.navigation.is_floating_sidebar() {
+        if !self.renderer.navigation.is_floating_sidebar()
+            || self.floating_sidebar_embedded()
+        {
             return false;
         }
 
@@ -585,7 +671,11 @@ impl Screen<'_> {
 
         // Preserve existing Island (tab state) and update its colors
         let old_island = self.renderer.island.take();
+        let was_floating_sidebar_embedded = self.renderer.floating_sidebar_embedded();
         self.renderer = Renderer::new(config);
+        self.renderer.set_floating_sidebar_embedded(
+            config.navigation.is_floating_sidebar() && was_floating_sidebar_embedded,
+        );
         if let Some(mut island) = old_island {
             island.update_colors(
                 config.colors.tabs,
@@ -599,6 +689,7 @@ impl Screen<'_> {
             self.floating_sidebar_mouse_visible = false;
             self.floating_sidebar_command_visible = false;
             self.floating_sidebar_command_reveal_at = None;
+            self.renderer.set_floating_sidebar_embedded(false);
         }
         self.sync_floating_sidebar_visibility();
         self.context_manager.config.should_update_title_extra =
@@ -612,11 +703,17 @@ impl Screen<'_> {
         for context_grid in self.context_manager.contexts_mut() {
             context_grid.update_line_height(config.line_height);
 
+            let padding_x_left = margin_left_for_sidebar(
+                &config.navigation,
+                config.margin.left,
+                self.renderer.floating_sidebar_embedded(),
+                num_tabs,
+            );
             context_grid.update_scaled_margin(Margin::new(
                 padding_y_top * scale,
                 config.margin.right * scale,
                 padding_y_bottom * scale,
-                config.margin.left * scale,
+                padding_x_left * scale,
             ));
 
             // Update per-panel font size and line height BEFORE
@@ -1411,6 +1508,9 @@ impl Screen<'_> {
                     Act::ToggleAppearanceTheme => {
                         self.context_manager.toggle_appearance_theme();
                     }
+                    Act::ToggleSidebarMode => {
+                        self.toggle_floating_sidebar_mode();
+                    }
                     Act::OpenCommandPalette => {
                         // One-way "open": the action never closes an
                         // already-visible palette. Users close it via
@@ -1714,9 +1814,13 @@ impl Screen<'_> {
             self.renderer.macos_use_unified_titlebar,
         );
         let padding_y_bottom = self.renderer.margin.bottom;
+        let padding_x_left = self.floating_sidebar_margin_left(num_tabs);
+        let padding_x_right = self.renderer.margin.right;
 
         if previous_margin.top != padding_y_top
             || previous_margin.bottom != padding_y_bottom
+            || previous_margin.left != padding_x_left
+            || previous_margin.right != padding_x_right
         {
             let current_dim = self.context_manager.current().dimension;
             if current_dim.font_size > 0.0 {
@@ -1728,10 +1832,11 @@ impl Screen<'_> {
                 let d = self.context_manager.current_grid_mut();
                 d.update_scaled_margin(Margin::new(
                     padding_y_top * scale,
-                    d.scaled_margin.right,
+                    padding_x_right * scale,
                     padding_y_bottom * scale,
-                    d.scaled_margin.left,
+                    padding_x_left * scale,
                 ));
+                d.update_dimensions(&mut self.sugarloaf);
                 self.resize_all_contexts();
             }
         }
@@ -2759,8 +2864,12 @@ impl Screen<'_> {
             };
             let mouse_x_unscaled = mouse_x as f32 / scale_factor;
             let mouse_y_unscaled = mouse_y as f32 / scale_factor;
-            if !(FLOATING_SIDEBAR_LEFT_MARGIN
-                ..=FLOATING_SIDEBAR_LEFT_MARGIN + FLOATING_SIDEBAR_WIDTH)
+            let sidebar_x = if self.floating_sidebar_embedded() {
+                0.0
+            } else {
+                FLOATING_SIDEBAR_LEFT_MARGIN
+            };
+            if !(sidebar_x..=sidebar_x + FLOATING_SIDEBAR_WIDTH)
                 .contains(&mouse_x_unscaled)
                 || mouse_y_unscaled
                     < FLOATING_SIDEBAR_TOP_OFFSET + FLOATING_SIDEBAR_PADDING

@@ -59,6 +59,8 @@ const FLOATING_SIDEBAR_ANIMATION_DURATION: Duration = Duration::from_millis(160)
 const FLOATING_SIDEBAR_EDGE_DEPTH: f32 = 1.0;
 const FLOATING_SIDEBAR_OUTER_EDGE_ALPHA: f32 = 0.20;
 const FLOATING_SIDEBAR_INSET_EDGE_ALPHA: f32 = 0.18;
+const FLOATING_SIDEBAR_EMBEDDED_DIVIDER_DARK_ALPHA: f32 = 0.28;
+const FLOATING_SIDEBAR_EMBEDDED_DIVIDER_LIGHT_ALPHA: f32 = 0.20;
 const FLOATING_SIDEBAR_TAB_RADIUS: f32 = 6.0;
 const FLOATING_SIDEBAR_TAB_BORDER_ALPHA: f32 = 0.18;
 const FLOATING_SIDEBAR_LABEL_LEFT_PADDING: f32 = 14.0;
@@ -435,6 +437,7 @@ impl Island {
         context_manager: &ContextManager<EventProxy>,
         navigation: &Navigation,
         floating_sidebar_visible: bool,
+        floating_sidebar_embedded: bool,
         terminal_background: [f32; 4],
     ) {
         let (window_width, _window_height, scale_factor) = dimensions;
@@ -442,16 +445,28 @@ impl Island {
         let current_tab_index = context_manager.current_index();
 
         if navigation.is_floating_sidebar() {
-            self.render_floating_sidebar_indicator(sugarloaf, context_manager);
-            let animation_fraction = self.floating_sidebar_fraction();
-            if floating_sidebar_visible || animation_fraction > 0.0 {
+            if floating_sidebar_embedded {
                 self.render_floating_sidebar(
                     sugarloaf,
                     dimensions,
                     context_manager,
                     terminal_background,
-                    animation_fraction,
+                    1.0,
+                    true,
                 );
+            } else {
+                self.render_floating_sidebar_indicator(sugarloaf, context_manager);
+                let animation_fraction = self.floating_sidebar_fraction();
+                if floating_sidebar_visible || animation_fraction > 0.0 {
+                    self.render_floating_sidebar(
+                        sugarloaf,
+                        dimensions,
+                        context_manager,
+                        terminal_background,
+                        animation_fraction,
+                        false,
+                    );
+                }
             }
             return;
         }
@@ -592,6 +607,7 @@ impl Island {
         context_manager: &ContextManager<EventProxy>,
         terminal_background: [f32; 4],
         animation_fraction: f32,
+        embedded: bool,
     ) {
         let (_window_width, window_height, scale_factor) = dimensions;
         let num_tabs = context_manager.len();
@@ -602,14 +618,23 @@ impl Island {
 
         let height = window_height / scale_factor;
         let top_offset = FLOATING_SIDEBAR_TOP_OFFSET;
-        let height = (height - top_offset - FLOATING_SIDEBAR_BOTTOM_MARGIN).max(0.0);
+        let bottom_margin = if embedded {
+            0.0
+        } else {
+            FLOATING_SIDEBAR_BOTTOM_MARGIN
+        };
+        let height = (height - top_offset - bottom_margin).max(0.0);
         if height <= 0.0 {
             return;
         }
 
-        let x_position = FLOATING_SIDEBAR_LEFT_MARGIN
-            - (1.0 - animation_fraction)
-                * (FLOATING_SIDEBAR_WIDTH + FLOATING_SIDEBAR_LEFT_MARGIN);
+        let x_position = if embedded {
+            0.0
+        } else {
+            FLOATING_SIDEBAR_LEFT_MARGIN
+                - (1.0 - animation_fraction)
+                    * (FLOATING_SIDEBAR_WIDTH + FLOATING_SIDEBAR_LEFT_MARGIN)
+        };
         let visible_alpha = self.floating_sidebar_opacity * animation_fraction;
         let background = [
             terminal_background[0],
@@ -618,71 +643,125 @@ impl Island {
             visible_alpha,
         ];
 
-        sugarloaf.rounded_rect(
-            None,
-            x_position - FLOATING_SIDEBAR_EDGE_DEPTH,
-            top_offset - FLOATING_SIDEBAR_EDGE_DEPTH,
-            FLOATING_SIDEBAR_WIDTH + FLOATING_SIDEBAR_EDGE_DEPTH * 2.0,
-            height + FLOATING_SIDEBAR_EDGE_DEPTH * 2.0,
-            background,
-            0.0,
-            FLOATING_SIDEBAR_RADIUS + FLOATING_SIDEBAR_EDGE_DEPTH,
-            0,
-        );
-        sugarloaf.rounded_rect(
-            None,
-            x_position - FLOATING_SIDEBAR_EDGE_DEPTH,
-            top_offset - FLOATING_SIDEBAR_EDGE_DEPTH,
-            FLOATING_SIDEBAR_WIDTH + FLOATING_SIDEBAR_EDGE_DEPTH * 2.0,
-            height + FLOATING_SIDEBAR_EDGE_DEPTH * 2.0,
-            [
+        if embedded {
+            sugarloaf.rect(
+                None,
+                x_position,
+                top_offset,
+                FLOATING_SIDEBAR_WIDTH,
+                height,
+                background,
                 0.0,
+                0,
+            );
+            sugarloaf.rect(
+                None,
+                x_position,
+                top_offset,
+                FLOATING_SIDEBAR_EDGE_DEPTH,
+                height,
+                [0.0, 0.0, 0.0, FLOATING_SIDEBAR_EMBEDDED_DIVIDER_DARK_ALPHA],
                 0.0,
+                0,
+            );
+            let divider_x = x_position + FLOATING_SIDEBAR_WIDTH - 3.0;
+            sugarloaf.rect(
+                None,
+                divider_x,
+                top_offset,
+                FLOATING_SIDEBAR_EDGE_DEPTH,
+                height,
+                [0.0, 0.0, 0.0, FLOATING_SIDEBAR_EMBEDDED_DIVIDER_DARK_ALPHA],
                 0.0,
-                FLOATING_SIDEBAR_OUTER_EDGE_ALPHA * animation_fraction,
-            ],
-            0.0,
-            FLOATING_SIDEBAR_RADIUS + FLOATING_SIDEBAR_EDGE_DEPTH,
-            0,
-        );
-        sugarloaf.rounded_rect(
-            None,
-            x_position,
-            top_offset,
-            FLOATING_SIDEBAR_WIDTH,
-            height,
-            background,
-            0.0,
-            FLOATING_SIDEBAR_RADIUS,
-            0,
-        );
-        sugarloaf.rounded_rect(
-            None,
-            x_position,
-            top_offset,
-            FLOATING_SIDEBAR_WIDTH,
-            height,
-            [
-                1.0,
-                1.0,
-                1.0,
-                FLOATING_SIDEBAR_INSET_EDGE_ALPHA * animation_fraction,
-            ],
-            0.0,
-            FLOATING_SIDEBAR_RADIUS,
-            0,
-        );
-        sugarloaf.rounded_rect(
-            None,
-            x_position + FLOATING_SIDEBAR_EDGE_DEPTH,
-            top_offset + FLOATING_SIDEBAR_EDGE_DEPTH,
-            FLOATING_SIDEBAR_WIDTH - FLOATING_SIDEBAR_EDGE_DEPTH * 2.0,
-            (height - FLOATING_SIDEBAR_EDGE_DEPTH * 2.0).max(0.0),
-            background,
-            0.0,
-            (FLOATING_SIDEBAR_RADIUS - FLOATING_SIDEBAR_EDGE_DEPTH).max(0.0),
-            0,
-        );
+                0,
+            );
+            sugarloaf.rect(
+                None,
+                divider_x + FLOATING_SIDEBAR_EDGE_DEPTH,
+                top_offset,
+                FLOATING_SIDEBAR_EDGE_DEPTH,
+                height,
+                [1.0, 1.0, 1.0, FLOATING_SIDEBAR_EMBEDDED_DIVIDER_LIGHT_ALPHA],
+                0.0,
+                0,
+            );
+            sugarloaf.rect(
+                None,
+                divider_x + FLOATING_SIDEBAR_EDGE_DEPTH * 2.0,
+                top_offset,
+                FLOATING_SIDEBAR_EDGE_DEPTH,
+                height,
+                [0.0, 0.0, 0.0, FLOATING_SIDEBAR_EMBEDDED_DIVIDER_DARK_ALPHA],
+                0.0,
+                0,
+            );
+        } else {
+            sugarloaf.rounded_rect(
+                None,
+                x_position - FLOATING_SIDEBAR_EDGE_DEPTH,
+                top_offset - FLOATING_SIDEBAR_EDGE_DEPTH,
+                FLOATING_SIDEBAR_WIDTH + FLOATING_SIDEBAR_EDGE_DEPTH * 2.0,
+                height + FLOATING_SIDEBAR_EDGE_DEPTH * 2.0,
+                background,
+                0.0,
+                FLOATING_SIDEBAR_RADIUS + FLOATING_SIDEBAR_EDGE_DEPTH,
+                0,
+            );
+            sugarloaf.rounded_rect(
+                None,
+                x_position - FLOATING_SIDEBAR_EDGE_DEPTH,
+                top_offset - FLOATING_SIDEBAR_EDGE_DEPTH,
+                FLOATING_SIDEBAR_WIDTH + FLOATING_SIDEBAR_EDGE_DEPTH * 2.0,
+                height + FLOATING_SIDEBAR_EDGE_DEPTH * 2.0,
+                [
+                    0.0,
+                    0.0,
+                    0.0,
+                    FLOATING_SIDEBAR_OUTER_EDGE_ALPHA * animation_fraction,
+                ],
+                0.0,
+                FLOATING_SIDEBAR_RADIUS + FLOATING_SIDEBAR_EDGE_DEPTH,
+                0,
+            );
+            sugarloaf.rounded_rect(
+                None,
+                x_position,
+                top_offset,
+                FLOATING_SIDEBAR_WIDTH,
+                height,
+                background,
+                0.0,
+                FLOATING_SIDEBAR_RADIUS,
+                0,
+            );
+            sugarloaf.rounded_rect(
+                None,
+                x_position,
+                top_offset,
+                FLOATING_SIDEBAR_WIDTH,
+                height,
+                [
+                    1.0,
+                    1.0,
+                    1.0,
+                    FLOATING_SIDEBAR_INSET_EDGE_ALPHA * animation_fraction,
+                ],
+                0.0,
+                FLOATING_SIDEBAR_RADIUS,
+                0,
+            );
+            sugarloaf.rounded_rect(
+                None,
+                x_position + FLOATING_SIDEBAR_EDGE_DEPTH,
+                top_offset + FLOATING_SIDEBAR_EDGE_DEPTH,
+                FLOATING_SIDEBAR_WIDTH - FLOATING_SIDEBAR_EDGE_DEPTH * 2.0,
+                (height - FLOATING_SIDEBAR_EDGE_DEPTH * 2.0).max(0.0),
+                background,
+                0.0,
+                (FLOATING_SIDEBAR_RADIUS - FLOATING_SIDEBAR_EDGE_DEPTH).max(0.0),
+                0,
+            );
+        }
 
         let mut y_position = top_offset + FLOATING_SIDEBAR_PADDING;
         let text_opts = DrawOpts {

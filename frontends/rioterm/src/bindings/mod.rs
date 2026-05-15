@@ -265,6 +265,7 @@ impl From<String> for Action {
             "togglevimode" => Some(Action::ToggleViMode),
             "toggleappearancetheme" => Some(Action::ToggleAppearanceTheme),
             "togglefullscreen" => Some(Action::ToggleFullscreen),
+            "togglesidebarmode" => Some(Action::ToggleSidebarMode),
             "opencommandpalette" => Some(Action::OpenCommandPalette),
             "none" => Some(Action::None),
             _ => None,
@@ -460,6 +461,9 @@ pub enum Action {
 
     /// Toggle appearance theme (dark/light).
     ToggleAppearanceTheme,
+
+    /// Toggle floating sidebar between overlay and embedded appearances.
+    ToggleSidebarMode,
 
     // Tab selections
     SelectTab(usize),
@@ -1010,6 +1014,7 @@ pub fn platform_key_bindings(
         "n", ModifiersState::SUPER; Action::WindowCreateNew;
         ",", ModifiersState::SUPER; Action::ConfigEditor;
         "p", ModifiersState::SUPER | ModifiersState::SHIFT; Action::OpenCommandPalette;
+        "s", ModifiersState::SUPER; Action::ToggleSidebarMode;
 
         // Search
         "f", ModifiersState::SUPER, ~BindingMode::SEARCH; Action::SearchForward;

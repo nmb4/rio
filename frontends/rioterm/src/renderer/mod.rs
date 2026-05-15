@@ -88,6 +88,7 @@ pub struct Renderer {
     pub trail_cursor_enabled: bool,
     pub trail_cursor: trail_cursor::TrailCursor,
     floating_sidebar_visible: bool,
+    floating_sidebar_embedded: bool,
 }
 
 impl Renderer {
@@ -161,6 +162,7 @@ impl Renderer {
             trail_cursor_enabled: config.effects.trail_cursor,
             trail_cursor: trail_cursor::TrailCursor::new(),
             floating_sidebar_visible: false,
+            floating_sidebar_embedded: false,
         }
     }
 
@@ -175,6 +177,19 @@ impl Renderer {
     #[inline]
     pub fn floating_sidebar_visible(&self) -> bool {
         self.floating_sidebar_visible
+    }
+
+    #[inline]
+    pub fn set_floating_sidebar_embedded(&mut self, embedded: bool) {
+        self.floating_sidebar_embedded = embedded;
+        if embedded {
+            self.set_floating_sidebar_visible(true);
+        }
+    }
+
+    #[inline]
+    pub fn floating_sidebar_embedded(&self) -> bool {
+        self.floating_sidebar_embedded
     }
 
     #[inline]
@@ -590,6 +605,7 @@ impl Renderer {
                 context_manager,
                 &self.navigation,
                 self.floating_sidebar_visible,
+                self.floating_sidebar_embedded,
                 self.dynamic_background.0,
             );
         }
