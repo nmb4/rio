@@ -499,6 +499,8 @@ impl ApplicationHandler<EventPayload> for Application<'_> {
                     } else {
                         let size = route.window.screen.context_manager.len();
                         route.window.screen.resize_top_or_bottom_line(size);
+                        route.window.screen.refresh_embedded_sidebar_layout();
+                        route.request_redraw();
                     }
                 }
             }

@@ -495,10 +495,26 @@ impl Screen<'_> {
                 padding_y_bottom * scale,
                 padding_x_left * scale,
             ));
-            context_grid.update_dimensions(&mut self.sugarloaf);
         }
 
+        self.resize_grids_to_window();
+    }
+
+    fn resize_grids_to_window(&mut self) {
+        let window_size = self.sugarloaf.window_size();
+        self.context_manager.resize_all_grids(
+            window_size.width,
+            window_size.height,
+            &mut self.sugarloaf,
+        );
         self.resize_all_contexts();
+    }
+
+    pub fn refresh_embedded_sidebar_layout(&mut self) {
+        if self.floating_sidebar_embedded() {
+            self.resize_grids_to_window();
+            self.mark_dirty();
+        }
     }
 
     fn toggle_floating_sidebar_mode(&mut self) {
@@ -1684,6 +1700,7 @@ impl Screen<'_> {
         self.context_manager
             .split(rich_text_id, false, &mut self.sugarloaf);
 
+        self.refresh_embedded_sidebar_layout();
         self.mark_dirty();
     }
 
@@ -1692,6 +1709,7 @@ impl Screen<'_> {
         self.context_manager
             .split(rich_text_id, true, &mut self.sugarloaf);
 
+        self.refresh_embedded_sidebar_layout();
         self.mark_dirty();
     }
 
@@ -1773,6 +1791,7 @@ impl Screen<'_> {
             self.clear_selection();
             self.context_manager
                 .remove_current_grid(&mut self.sugarloaf);
+            self.refresh_embedded_sidebar_layout();
             self.mark_dirty();
         } else {
             self.close_tab(clipboard);
@@ -1785,6 +1804,7 @@ impl Screen<'_> {
             .close_current_context(&mut self.sugarloaf);
 
         self.cancel_search(clipboard);
+        self.refresh_embedded_sidebar_layout();
         if self.ctx().len() <= 1 {
             // Update the remaining tab's margin and position
             // (on Linux/Windows when hide_if_single transitions to hidden)
