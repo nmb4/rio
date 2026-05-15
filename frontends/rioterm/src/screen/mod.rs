@@ -68,12 +68,9 @@ const FLOATING_SIDEBAR_COMMAND_REVEAL_DELAY: Duration = Duration::from_millis(50
 fn floating_sidebar_reserved_width(
     navigation: &rio_backend::config::navigation::Navigation,
     embedded: bool,
-    num_tabs: usize,
+    #[allow(unused)] num_tabs: usize,
 ) -> f32 {
-    if navigation.is_floating_sidebar()
-        && embedded
-        && !(navigation.hide_if_single && num_tabs == 1)
-    {
+    if navigation.is_floating_sidebar() && embedded {
         crate::renderer::island::FLOATING_SIDEBAR_WIDTH
     } else {
         0.0
@@ -455,9 +452,10 @@ impl Screen<'_> {
     #[inline]
     fn sync_floating_sidebar_visibility(&mut self) {
         let visible = self.renderer.navigation.is_floating_sidebar()
-            && (self.floating_sidebar_embedded() || self.floating_sidebar_visible())
-            && !(self.renderer.navigation.hide_if_single
-                && self.context_manager.len() == 1);
+            && (self.floating_sidebar_embedded()
+                || (self.floating_sidebar_visible()
+                    && !(self.renderer.navigation.hide_if_single
+                        && self.context_manager.len() == 1)));
         self.renderer.set_floating_sidebar_visible(visible);
     }
 

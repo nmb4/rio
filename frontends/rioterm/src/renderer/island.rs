@@ -63,6 +63,7 @@ const FLOATING_SIDEBAR_EMBEDDED_DIVIDER_DARK_ALPHA: f32 = 0.28;
 const FLOATING_SIDEBAR_EMBEDDED_DIVIDER_LIGHT_ALPHA: f32 = 0.20;
 const FLOATING_SIDEBAR_EMBEDDED_DIVIDER_BOTTOM_GAP: f32 = 3.0;
 const FLOATING_SIDEBAR_EMBEDDED_DIVIDER_CAP_SIZE: f32 = 2.0;
+const FLOATING_SIDEBAR_EMBEDDED_TOP_OVERLAP: f32 = 2.0;
 const FLOATING_SIDEBAR_TAB_RADIUS: f32 = 6.0;
 const FLOATING_SIDEBAR_TAB_BORDER_ALPHA: f32 = 0.18;
 const FLOATING_SIDEBAR_LABEL_LEFT_PADDING: f32 = 14.0;
@@ -614,7 +615,7 @@ impl Island {
         let (_window_width, window_height, scale_factor) = dimensions;
         let num_tabs = context_manager.len();
         let current_tab_index = context_manager.current_index();
-        if self.hide_if_single && num_tabs == 1 {
+        if !embedded && self.hide_if_single && num_tabs == 1 {
             return;
         }
 
@@ -646,14 +647,18 @@ impl Island {
         ];
 
         if embedded {
-            let divider_height =
-                (height - FLOATING_SIDEBAR_EMBEDDED_DIVIDER_BOTTOM_GAP).max(0.0);
+            let background_top_offset =
+                (top_offset - FLOATING_SIDEBAR_EMBEDDED_TOP_OVERLAP).max(0.0);
+            let background_height = height + top_offset - background_top_offset;
+            let divider_height = (background_height
+                - FLOATING_SIDEBAR_EMBEDDED_DIVIDER_BOTTOM_GAP)
+                .max(0.0);
             sugarloaf.rect(
                 None,
                 x_position,
-                top_offset,
+                background_top_offset,
                 FLOATING_SIDEBAR_WIDTH,
-                height,
+                background_height,
                 background,
                 0.0,
                 0,
@@ -661,15 +666,15 @@ impl Island {
             sugarloaf.rect(
                 None,
                 x_position,
-                top_offset,
+                background_top_offset,
                 FLOATING_SIDEBAR_EDGE_DEPTH,
-                height,
+                background_height,
                 [0.0, 0.0, 0.0, FLOATING_SIDEBAR_EMBEDDED_DIVIDER_DARK_ALPHA],
                 0.0,
                 0,
             );
             let divider_x = x_position + FLOATING_SIDEBAR_WIDTH - 3.0;
-            let outer_line_y = top_offset + FLOATING_SIDEBAR_EDGE_DEPTH;
+            let outer_line_y = background_top_offset + FLOATING_SIDEBAR_EDGE_DEPTH;
             let outer_line_height =
                 (divider_height - FLOATING_SIDEBAR_EDGE_DEPTH * 2.0).max(0.0);
             sugarloaf.rect(
@@ -683,7 +688,7 @@ impl Island {
                 0,
             );
             let light_x = divider_x + FLOATING_SIDEBAR_EDGE_DEPTH;
-            let light_middle_y = top_offset + FLOATING_SIDEBAR_EDGE_DEPTH;
+            let light_middle_y = background_top_offset + FLOATING_SIDEBAR_EDGE_DEPTH;
             let light_middle_height =
                 (divider_height - FLOATING_SIDEBAR_EDGE_DEPTH * 2.0).max(0.0);
             sugarloaf.rect(
@@ -699,7 +704,7 @@ impl Island {
             sugarloaf.rect(
                 None,
                 light_x,
-                top_offset,
+                background_top_offset,
                 FLOATING_SIDEBAR_EDGE_DEPTH,
                 FLOATING_SIDEBAR_EMBEDDED_DIVIDER_CAP_SIZE,
                 [0.0, 0.0, 0.0, FLOATING_SIDEBAR_EMBEDDED_DIVIDER_DARK_ALPHA],
@@ -709,7 +714,8 @@ impl Island {
             sugarloaf.rect(
                 None,
                 light_x,
-                top_offset + divider_height - FLOATING_SIDEBAR_EMBEDDED_DIVIDER_CAP_SIZE,
+                background_top_offset + divider_height
+                    - FLOATING_SIDEBAR_EMBEDDED_DIVIDER_CAP_SIZE,
                 FLOATING_SIDEBAR_EDGE_DEPTH,
                 FLOATING_SIDEBAR_EMBEDDED_DIVIDER_CAP_SIZE,
                 [0.0, 0.0, 0.0, FLOATING_SIDEBAR_EMBEDDED_DIVIDER_DARK_ALPHA],

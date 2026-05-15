@@ -61,6 +61,22 @@ Consider adding a mouse-accessible plus button for new tabs.
 - Keep this separate from larger concepts like Arc-style spaces until those are better worked out.
 - Do not prioritize spaces yet; it is still unclear whether they make sense or whether users should simply open new terminal windows.
 
+## Make sidebar styling configurable via themes
+
+Move sidebar visual styling into theme configuration.
+
+- Expose floating and embedded sidebar colors through the theme.
+- Include divider colors, active tab backgrounds, borders, text colors, opacity, and subtle edge treatment.
+- Avoid hard-coded sidebar styling values in renderer code where a theme value would be more appropriate.
+
+## Fix Cmd+Backspace on macOS
+
+Make `Cmd+Backspace` delete to the beginning of the current line on macOS.
+
+- Verify the expected escape/control sequence for common shells and terminal apps.
+- Add or fix the default macOS key binding.
+- Ensure it does not regress normal Backspace, Option+Backspace, or existing delete-word behavior.
+
 
 # Future Work
 
