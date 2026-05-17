@@ -258,6 +258,18 @@ impl FontLibrary {
             return found;
         }
 
+        if fragment_style.font_attrs.weight() != Weight::NORMAL
+            || fragment_style.font_attrs.style() != Style::Normal
+        {
+            if let Some(found) = self.inner.read().find_best_font_match_strict(
+                ch,
+                &SpanStyle::default(),
+                route_id,
+            ) {
+                return found;
+            }
+        }
+
         self.cascade_discover(ch, fragment_style)
             .unwrap_or((0, false))
     }
@@ -616,6 +628,9 @@ impl FontLibraryData {
 
         let italic = fragment_style.font_attrs.style() == Style::Italic;
         let bold = fragment_style.font_attrs.weight() == Weight::BOLD;
+        if let Some(result) = self.preferred_style_slot_match(ch, bold, italic) {
+            return Some(result);
+        }
         let spec = (italic || bold).then_some(LookupAttrs { italic, bold });
 
         if let Some(result) =
@@ -679,6 +694,9 @@ impl FontLibraryData {
 
         let italic = fragment_style.font_attrs.style() == Style::Italic;
         let bold = fragment_style.font_attrs.weight() == Weight::BOLD;
+        if let Some(result) = self.preferred_style_slot_match(ch, bold, italic) {
+            return Some(result);
+        }
         let spec = (italic || bold).then_some(LookupAttrs { italic, bold });
 
         lookup_for_font_match(&mut char_cluster, &mut synth, self, spec)
@@ -721,6 +739,53 @@ impl FontLibraryData {
             Some(FontEntry::Alias(target)) => *target,
             _ => font_id,
         }
+    }
+
+    fn preferred_style_slot_match(
+        &self,
+        ch: char,
+        bold: bool,
+        italic: bool,
+    ) -> Option<(usize, bool)> {
+        if !bold && !italic {
+            return None;
+        }
+
+        let slot_id = match (bold, italic) {
+            (true, true) => 3,
+            (true, false) => 1,
+            (false, true) => 2,
+            (false, false) => 0,
+        };
+        let font_id = self.resolve_id(slot_id);
+        if !self.font_covers_char(font_id, ch) {
+            return None;
+        }
+        let is_emoji = self
+            .try_get(&font_id)
+            .map(|font| font.is_emoji)
+            .unwrap_or(false);
+        Some((font_id, is_emoji))
+    }
+
+    #[cfg(target_os = "macos")]
+    fn font_covers_char(&self, font_id: usize, ch: char) -> bool {
+        self.try_get(&font_id)
+            .and_then(|font| font.handle())
+            .is_some_and(|handle| crate::font::macos::font_has_char(handle, ch))
+    }
+
+    #[cfg(not(target_os = "macos"))]
+    fn font_covers_char(&self, font_id: usize, ch: char) -> bool {
+        let Some((shared_data, offset, key)) = self.get_data(&font_id) else {
+            return false;
+        };
+        let font_ref = FontRef {
+            data: shared_data.as_ref(),
+            offset,
+            key,
+        };
+        font_ref.charmap().map(ch as u32) != 0
     }
 
     /// Rio `font_id` registered for the given PostScript name, or
@@ -2104,6 +2169,29 @@ mod postscript_resolver_tests {
             len_after_first, len_after_second,
             "the second resolve must not register a duplicate font"
         );
+    }
+
+    #[test]
+    fn styled_ascii_falls_back_to_regular_before_system_cascade() {
+        use std::sync::Arc;
+
+        let mut data = FontLibraryData::default();
+        data.insert(FontData::from_static_slice(FONT_CASCADIA_CODE_NF).expect("load"));
+        data.insert_alias(FONT_ID_REGULAR);
+        data.insert(load_fallback_from_memory(Slot::Bold));
+        let lib = FontLibrary {
+            inner: Arc::new(parking_lot::RwLock::new(data)),
+        };
+        let bold = SpanStyle {
+            font_attrs: crate::Attributes::new(
+                crate::Stretch::NORMAL,
+                Weight::BOLD,
+                Style::Normal,
+            ),
+            ..SpanStyle::default()
+        };
+
+        assert_eq!(lib.resolve_font_for_char('/', &bold, None), (0, false));
     }
 }
 

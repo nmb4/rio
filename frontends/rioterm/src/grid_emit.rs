@@ -1878,6 +1878,8 @@ pub fn build_row_fg(
             if (grid_col as usize) >= cols {
                 continue;
             }
+            let src_col = (grid_col as usize).min(cols.saturating_sub(1));
+            let src_sq = row[Column(src_col)];
 
             let Some((_, slot, is_color)) = ensure_glyph_by_id(
                 rasterizer,
@@ -1903,8 +1905,6 @@ pub fn build_row_fg(
             // ligatures take the first cluster cell's colour. Mapped
             // through `run_cell_columns` for the same reason as
             // `grid_col` above.
-            let src_col = (grid_col as usize).min(cols.saturating_sub(1));
-            let src_sq = row[Column(src_col)];
             let src_style = row_styles[src_col];
             let (atlas, color) = if is_color {
                 // Colour glyphs (emoji) don't take the selection-fg /
@@ -2123,7 +2123,7 @@ fn ensure_glyph_by_id(
 ) -> Option<(GlyphKey, AtlasSlot, bool)> {
     let key = GlyphKey {
         font_id,
-        glyph_id: glyph_id as u32,
+        glyph_id: atlas_glyph_id(glyph_id, synthetic_italic, synthetic_bold),
         size_bucket,
     };
     if let Some(slot) = grid.lookup_glyph(key) {
@@ -2167,6 +2167,17 @@ fn ensure_glyph_by_id(
         grid.insert_glyph(key, raster)?
     };
     Some((key, slot, is_color))
+}
+
+fn atlas_glyph_id(glyph_id: u16, synthetic_italic: bool, synthetic_bold: bool) -> u32 {
+    let mut id = glyph_id as u32;
+    if synthetic_bold {
+        id |= 1 << 16;
+    }
+    if synthetic_italic {
+        id |= 1 << 17;
+    }
+    id
 }
 
 /// Look up or rasterise a Glyph Protocol registration into the grid
@@ -2372,4 +2383,26 @@ fn font_library_hinting(_r: &GridGlyphRasterizer) -> bool {
     // For now the lock on swash rasterize is a small fraction of
     // render time; optimise if profiling flags it.
     true
+}
+
+#[cfg(test)]
+mod tests {
+    use super::atlas_glyph_id;
+
+    #[test]
+    fn glyph_key_distinguishes_synthetic_styles() {
+        assert_eq!(atlas_glyph_id(42, false, false), 42);
+        assert_ne!(
+            atlas_glyph_id(42, false, false),
+            atlas_glyph_id(42, false, true)
+        );
+        assert_ne!(
+            atlas_glyph_id(42, false, false),
+            atlas_glyph_id(42, true, false)
+        );
+        assert_ne!(
+            atlas_glyph_id(42, false, true),
+            atlas_glyph_id(42, true, true)
+        );
+    }
 }
