@@ -69,13 +69,55 @@ Move sidebar visual styling into theme configuration.
 - Include divider colors, active tab backgrounds, borders, text colors, opacity, and subtle edge treatment.
 - Avoid hard-coded sidebar styling values in renderer code where a theme value would be more appropriate.
 
-## Fix Cmd+Backspace on macOS
+## [x] Fix Cmd+Backspace on macOS
 
 Make `Cmd+Backspace` delete to the beginning of the current line on macOS.
 
-- Verify the expected escape/control sequence for common shells and terminal apps.
-- Add or fix the default macOS key binding.
-- Ensure it does not regress normal Backspace, Option+Backspace, or existing delete-word behavior.
+- Implemented as a default macOS `Super+Backspace` binding that sends `Ctrl+U` (`\x15`).
+- Covered by a focused binding test.
+- Normal Backspace, Option+Backspace, search mode, and vi mode behavior are kept separate.
+
+## Fix split-pane layout on initial open
+
+Make split-pane layouts render correctly immediately after opening.
+
+- The current layout may not update until the window is resized.
+- Find the missing initial layout or resize update call.
+- Ensure the fix covers single-pane tabs and split-pane tabs without requiring a manual resize.
+
+## Fix floating sidebar tab list scrolling
+
+Keep all tabs accessible when the floating sidebar has more tabs than fit vertically.
+
+- Add overflow handling for the sidebar tab list.
+- Support scrolling past the currently visible rows.
+- Ensure active-tab selection remains visible when navigating by keyboard.
+- Keep the scrollbar or scroll affordance subtle enough to match the current sidebar design.
+
+## Fix close confirmation keyboard behavior on macOS
+
+Make the close confirmation flow confirmable from the keyboard.
+
+- The native macOS dialog cannot currently be confirmed with Enter.
+- Prefer an in-app popup if the native dialog cannot be made keyboard-friendly.
+- Reuse the Command Palette interaction style where practical.
+- Support Enter to confirm, with `Cmd+Enter` as a possible safer alternative.
+
+## Fix oversized parentheses and brackets rendering
+
+Investigate and fix bracket glyph rendering where parentheses or brackets appear too large.
+
+- Reproduce with Departure Mono and Berkeley Mono.
+- Treat this as likely Rio/Sugarloaf shaping or font metric behavior rather than a font-specific issue.
+- Check whether fallback font selection is involved before changing glyph metrics globally.
+
+## Apply Set visual polish changes
+
+Bring Set's matching UI constants in line with the Rio sidebar polish.
+
+- Change the relevant border width from 2px to 1px for DPI behavior.
+- Reduce opacity from 40% to the matching 20% or 10% treatment.
+- Keep this tracked separately from Rio-specific sidebar rendering work.
 
 
 # Future Work
@@ -97,9 +139,53 @@ Explore additional sidebar layout modes beyond the current floating version.
 - Add an option to pin the sidebar.
 - Consider allowing the sidebar to be placed on the right side.
 - Right-side placement may be useful because commands are usually on the left due to left-to-right text flow.
+- Explore right-aligning the floating sidebar so it does not overlap left-side command input.
 - Add an embedded mode where the sidebar is part of the window layout instead of floating.
 - In embedded mode, shift the actual terminal panes to the right so the sidebar is baked into the layout.
 - Work out the border styling for embedded mode.
+
+## Add compact and detail sidebar tab modes
+
+Add a mode toggle for how much information each sidebar tab shows.
+
+- Compact mode should be a single-line row with directory and command only.
+- Detail mode should add Git info such as branch, staged changes, unstaged changes, push, and pull state.
+- Consider adding run duration in Detail mode.
+- Add subtle separators between tabs in Detail mode so multi-line tabs remain visually distinct.
+- Keep the toggle configurable and compatible with the separate `show_git_info` option.
+
+## Add modifier-revealed tab number badges
+
+Show numbered badges on sidebar tabs while holding `Cmd`.
+
+- Use a Raycast or Codex-style reveal interaction.
+- Avoid requiring manual counting when switching to tabs by number.
+- Keep the badges hidden during normal pointer use.
+
+## Add configurable per-tab status icons
+
+Show small contextual icons for important tab state.
+
+- Show a sparkle icon when a coding agent is running.
+- Show a pane icon when tmux or Zellij is active.
+- Make the state-to-icon mapping configurable in the config file.
+- Keep icon use optional so the minimal sidebar treatment remains available.
+
+## Add Git information to the title bar
+
+Show concise Git context in the title bar when sidebar mode is enabled.
+
+- Use a format like `directory | program | git branch | git changes (+/-)`.
+- Keep the information compact enough to coexist with the traffic lights and tab index indicator.
+- Share Git-status plumbing with sidebar Git info where possible.
+
+## Resolve the title-bar tab index indicator
+
+Decide how the current tab index indicator should behave near the traffic lights.
+
+- Decide whether to keep, move, or restyle the indicator.
+- Coordinate this with the update affordance and tab-index animation work.
+- Preserve enough visibility for quick tab orientation.
 
 ## Add antialiasing support for line drawing
 
@@ -119,6 +205,14 @@ Add command-state detection for the Rio sidebar so it can distinguish between co
 - Treat known hot-reloading/dev commands such as `npm run dev` as non-blocking.
 - Maintain a list of known commands and whether each one is blocking or interactive/non-blocking.
 - Use this state to show a visual running indicator, such as an hourglass or loading spinner.
+
+## Add notifications for completed long-running commands
+
+Notify when long-running commands finish.
+
+- Use system notifications similar to Warp's behavior.
+- Tie notification eligibility to command-state detection.
+- Avoid notifying for interactive or intentionally long-running development servers.
 
 ## Reintroduce bookmark colors
 
@@ -156,6 +250,7 @@ Add an update button or indicator for Rio, inspired by Codex App or Arc-style up
 - Add logic to check whether an update is available for Rio.
 - Avoid placing a browser-like update button at the bottom of the sidebar if it feels too much like a browser.
 - Prefer adding an update pill near the existing tab index indicator pill.
+- Consider placing it next to the traffic lights, similar to Codex App.
 - The pill can simply say `Update`.
 - Clicking it should start the update flow in the background.
 
@@ -190,3 +285,36 @@ Do not over-invest in Windows-specific details or a fully polished cross-platfor
 - The current priority is the personal fork and core sidebar experience.
 - It is acceptable to defer Windows-specific layout adjustments.
 - It is acceptable to start with placeholder update behavior before implementing the full cross-platform version.
+
+## Test squircle corners for Rio UI
+
+Evaluate whether the squircle/super-ellipse algorithm from the Love project fits Rio's UI corners.
+
+- Compare it against the current rounded-rect treatment.
+- Check floating sidebar, tab pills, and update pills.
+- Keep the current native-feeling macOS sidebar direction unless the squircle version is clearly better.
+
+## Run font and theme experiments
+
+Validate candidate fonts and theme combinations for the current sidebar design.
+
+- Test Departure Mono bold number rendering in Ghostty to see whether the glyphs come from fallback.
+- Test Geist Mono with the current Cursor Dark theme and sidebar layout.
+- Compare the result against Berkeley Mono before changing defaults.
+
+## Set startup window defaults for the fork
+
+Make Rio launch into the preferred personal-fork layout.
+
+- Set a fixed startup window size in config so Rio launches non-maximized.
+- Prefer one pane per tab instead of splits on startup.
+- Keep the traffic lights visible.
+
+## Set up fork release infrastructure
+
+Prepare the personal fork for public builds and ongoing upstream sync.
+
+- Keep the fork separate because tab groups, Git stats, and related sidebar work are too opinionated for upstream.
+- Set up release CI with GitHub Actions or the self-hosted server.
+- Build and publish platform artifacts publicly.
+- Keep the fork in sync with upstream while upstream commit cadence remains manageable.

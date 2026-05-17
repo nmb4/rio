@@ -984,7 +984,7 @@ pub fn create_hint_bindings(
 }
 
 // Macos
-#[cfg(all(target_os = "macos", not(test)))]
+#[cfg(target_os = "macos")]
 pub fn platform_key_bindings(
     use_navigation_key_bindings: bool,
     use_splits: bool,
@@ -1000,6 +1000,8 @@ pub fn platform_key_bindings(
         "-", ModifiersState::SUPER; Action::DecreaseFontSize;
         Key::Named(Insert), ModifiersState::SHIFT, ~BindingMode::VI, ~BindingMode::SEARCH;
             Action::Esc("\x1b[2;2~".into());
+        Key::Named(Backspace), ModifiersState::SUPER, ~BindingMode::VI, ~BindingMode::SEARCH;
+            Action::Esc("\x15".into());
         "k", ModifiersState::SUPER, ~BindingMode::VI, ~BindingMode::SEARCH;
             Action::Esc("\x0c".into());
         "k", ModifiersState::SUPER, ~BindingMode::VI;  Action::ClearHistory;
@@ -1077,7 +1079,7 @@ pub fn platform_key_bindings(
 }
 
 // Not Windows, Macos
-#[cfg(not(any(target_os = "macos", target_os = "windows", test)))]
+#[cfg(not(any(target_os = "macos", target_os = "windows")))]
 pub fn platform_key_bindings(
     use_navigation_key_bindings: bool,
     use_splits: bool,
@@ -1142,7 +1144,7 @@ pub fn platform_key_bindings(
 }
 
 // Windows
-#[cfg(all(target_os = "windows", not(test)))]
+#[cfg(target_os = "windows")]
 pub fn platform_key_bindings(
     use_navigation_key_bindings: bool,
     use_splits: bool,
@@ -1211,11 +1213,6 @@ pub fn platform_key_bindings(
     // Note: Hint bindings are added separately in Screen::new() based on config
 
     key_bindings
-}
-
-#[cfg(test)]
-pub fn platform_key_bindings(_: bool, _: bool, _: ConfigKeyboard) -> Vec<KeyBinding> {
-    vec![]
 }
 
 #[cfg(test)]
@@ -1556,5 +1553,25 @@ mod tests {
         assert_eq!(new_bindings.len(), 1);
 
         assert_eq!(&new_bindings[0].action, &Action::Scroll(1));
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn macos_cmd_backspace_kills_to_start_of_line() {
+        let bindings = platform_key_bindings(false, false, ConfigKeyboard::default());
+        let trigger = BindingKey::Keycode {
+            key: Key::Named(Backspace),
+            location: KeyLocation::Standard,
+        };
+
+        let binding = bindings
+            .iter()
+            .find(|binding| {
+                binding.trigger == trigger && binding.mods == ModifiersState::SUPER
+            })
+            .expect("missing Cmd+Backspace binding");
+
+        assert_eq!(binding.action, Action::Esc("\x15".into()));
+        assert_eq!(binding.notmode, BindingMode::VI | BindingMode::SEARCH);
     }
 }
